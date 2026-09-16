@@ -10,7 +10,7 @@
     "avalanche-2": "WAIT",
     "1inch": "WAIT",
     "internet-computer": "WAIT",
-    "nano": "ACCUMULATE",
+    "nano": "WAIT",
     "ethereum": "WAIT",
     "bitcoin": "WAIT"
   },
