@@ -51,6 +51,7 @@ EMA_TREND_FAST_LONG  = 50
 EMA_TREND_LONG = 200
 RSI_PERIOD    = 14
 RSI_OVERSOLD  = 30  # fallback only, used when a coin lacks enough RSI history — see rsiOversoldThreshold
+RSI_OVERBOUGHT = 85  # fallback only — flat cutoff before a coin has enough RSI history for its own threshold
 TARGET_PROXIMITY_PCT = 3
 LIQUIDITY_DEAD_RATIO = 0.0005
 ABSOLUTE_DEAD_VOLUME = 100000
@@ -67,7 +68,16 @@ RSI_OVERSOLD_MIN_SAMPLES = 60
 RSI_OVERSOLD_FLOOR = 20
 RSI_OVERSOLD_CEIL = 45
 
-# Same story for "near its low" and "how deep is an extreme ATH drawdown" — a fixed % assumes
+# Mirrors the oversold logic above for the top side, but deliberately stricter: this is meant to
+# flag only genuinely extreme, blow-off-top conditions worth swing-selling into — not just "a bit
+# hot" — so it clamps to a much narrower, higher band (80-92) than the oversold side's 20-45, and
+# looks at each coin's own 97th percentile rather than its 85th.
+RSI_OVERBOUGHT_PERCENTILE = 97
+RSI_OVERBOUGHT_MIN_SAMPLES = 60
+RSI_OVERBOUGHT_FLOOR = 80
+RSI_OVERBOUGHT_CEIL = 92
+
+# Same story for "near its low/high" and "how deep is an extreme ATH drawdown" — a fixed % assumes
 # every coin swings the same amount. Both are scaled by each coin's own trailing daily-move
 # average (DCA_VOL_LOOKBACK_DAYS) relative to VOL_SCALE_REF_PCT, clamped so an illiquid/outlier
 # reading can't blow the bands out.
@@ -80,7 +90,7 @@ DCA_NEAR_LOW_MULT = 1.0
 DCA_NEAR_LOW_FLOOR_PCT = 1.5
 DCA_NEAR_LOW_CEIL_PCT = 8
 
-TA_SCHEMA_VERSION = 2  # bump forces a TA cache refresh when the ta dict's shape changes
+TA_SCHEMA_VERSION = 3  # bumped: now also fetches true OHLC 90d high/low and an adaptive RSI-overbought threshold
 
 # ── Telegram ──────────────────────────────────────────────────────
 def send_telegram(msg):
@@ -191,6 +201,8 @@ def compute_ta_from_closes(closes):
     dip_window = closes[-DCA_DIP_WINDOW_DAYS:]
     rolling_low = min(dip_window) if dip_window else None
     rolling_low_index = dip_window.index(rolling_low) if dip_window else -1
+    rolling_high = max(dip_window) if dip_window else None
+    rolling_high_index = dip_window.index(rolling_high) if dip_window else -1
 
     valid_rsi = [v for v in rsi_series if v is not None]
     rsi_oversold_threshold = RSI_OVERSOLD
@@ -198,6 +210,11 @@ def compute_ta_from_closes(closes):
         p = percentile_of(sorted(valid_rsi), RSI_OVERSOLD_PERCENTILE)
         if p is not None:
             rsi_oversold_threshold = max(RSI_OVERSOLD_FLOOR, min(RSI_OVERSOLD_CEIL, p))
+    rsi_overbought_threshold = RSI_OVERBOUGHT
+    if len(valid_rsi) >= RSI_OVERBOUGHT_MIN_SAMPLES:
+        p_high = percentile_of(sorted(valid_rsi), RSI_OVERBOUGHT_PERCENTILE)
+        if p_high is not None:
+            rsi_overbought_threshold = max(RSI_OVERBOUGHT_FLOOR, min(RSI_OVERBOUGHT_CEIL, p_high))
 
     avg_daily_move = calc_avg_daily_move_pct(closes, DCA_VOL_LOOKBACK_DAYS)
     vol_scale = max(VOL_SCALE_MIN, min(VOL_SCALE_MAX, avg_daily_move / VOL_SCALE_REF_PCT)) if avg_daily_move is not None else 1
@@ -219,13 +236,19 @@ def compute_ta_from_closes(closes):
     return {
         "rsi": rsi_series[-1] if rsi_series else None,
         "rsiOversoldThreshold": rsi_oversold_threshold,
+        "rsiOverboughtThreshold": rsi_overbought_threshold,
         "avgDailyMove": avg_daily_move,
         "nearLowThresholdPct": near_low_threshold_pct,
         "athTiers": ath_tiers,
         "emaLong": ema_long_series[-1] if ema_long_series else None,
         "rollingLow": rolling_low,
         "rollingLowDaysAgo": (len(dip_window) - rolling_low_index) if rolling_low_index >= 0 else None,
+        "rollingHigh": rolling_high,
+        "rollingHighDaysAgo": (len(dip_window) - rolling_high_index) if rolling_high_index >= 0 else None,
         "rollingLowWindowDays": len(dip_window),
+        # Overwritten with 'ohlc' by refresh_ta() when the true-wick fetch below succeeds; this
+        # closes-only value stays the fallback if that call fails.
+        "rollingExtremesSource": "closes",
         "closes": closes,
         "schemaVersion": TA_SCHEMA_VERSION,
         "timestamp": time.time() * 1000,
@@ -238,6 +261,12 @@ def days_since(date_str):
         then = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
     except Exception:
         return None
+    return max(0, round((datetime.now(timezone.utc) - then).total_seconds() / 86400))
+
+def days_since_ts(ts_ms):
+    if ts_ms is None:
+        return None
+    then = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc)
     return max(0, round((datetime.now(timezone.utc) - then).total_seconds() / 86400))
 
 # ── Data fetch ────────────────────────────────────────────────────
@@ -258,6 +287,37 @@ def fetch_ta_history(coin_id):
         return [p[1] for p in usable]
     except Exception as e:
         print(f"TA fetch failed for {coin_id}: {e}")
+        return None
+
+# The daily "closes" above are one snapshot price per day — they never see the intraday wick a
+# coin actually touched, so a rolling min/max of closes always understates the real 90-day range
+# you'd see on an exchange chart. CoinGecko's OHLC endpoint returns actual candle highs/lows
+# instead — coarser (4-day candles this far back) but far closer to the real chart than closes.
+def fetch_ohlc_extremes(coin_id, days):
+    try:
+        r = requests.get(
+            f"{API_BASE}/coins/{coin_id}/ohlc",
+            params={"vs_currency": "inr", "days": days, "x_cg_demo_api_key": API_KEY},
+            timeout=10,
+        )
+        r.raise_for_status()
+        data = r.json()
+        if not isinstance(data, list) or not data:
+            return None
+        high_val, high_ts, low_val, low_ts = float("-inf"), None, float("inf"), None
+        for candle in data:
+            if not isinstance(candle, list) or len(candle) < 5:
+                continue
+            ts, _open, high, low = candle[0], candle[1], candle[2], candle[3]
+            if high is not None and high > high_val:
+                high_val, high_ts = high, ts
+            if low is not None and low < low_val:
+                low_val, low_ts = low, ts
+        if high_val == float("-inf") or low_val == float("inf") or high_ts is None or low_ts is None:
+            return None
+        return {"high": high_val, "highTs": high_ts, "low": low_val, "lowTs": low_ts}
+    except Exception as e:
+        print(f"OHLC fetch failed for {coin_id}: {e}")
         return None
 
 def fetch_market_data(ids):
@@ -282,6 +342,7 @@ def fetch_market_data(ids):
                 "ath_change_percentage": coin.get("ath_change_percentage"), "ath_date": coin.get("ath_date"),
                 "atl": coin.get("atl"), "atl_date": coin.get("atl_date"),
                 "current_price": coin.get("current_price"),
+                "high_24h": coin.get("high_24h"), "low_24h": coin.get("low_24h"),
                 "change_24h": coin.get("price_change_percentage_24h"), "notFound": False,
             }
         for cid in ids:
@@ -301,11 +362,14 @@ def classify_holding(coin_id, md, item, ta, macro_ta, dca_log):
 
     volume, mcap, rank = md.get("total_volume"), md.get("market_cap"), md.get("market_cap_rank")
     cur = md.get("current_price")
+    high_24h, low_24h = md.get("high_24h"), md.get("low_24h")
     md_ath, md_atl = md.get("ath"), md.get("atl")
     ath_value = max(md_ath, cur) if (md_ath is not None and cur is not None) else md_ath
     ath_pct = (md.get("ath_change_percentage") if ath_value == md_ath else 0) if (ath_value is not None and cur is not None) else md.get("ath_change_percentage")
     atl_value = min(md_atl, cur) if (md_atl is not None and cur is not None) else md_atl
     atl_date = md.get("atl_date")
+    ath_date = md.get("ath_date")
+    target = item.get("target")
 
     own_ret = calc_return_pct(ta.get("closes") if ta else None, REL_STRENGTH_WINDOW_DAYS)
     btc_ret = calc_return_pct(macro_ta.get("closes") if macro_ta else None, REL_STRENGTH_WINDOW_DAYS)
@@ -360,12 +424,32 @@ def classify_holding(coin_id, md, item, ta, macro_ta, dca_log):
     if atl_date and ta and ta.get("rollingLowWindowDays") is not None:
         ds = days_since(atl_date)
         atl_within_window = ds is not None and ds <= ta["rollingLowWindowDays"]
+    # Folds in low_24h too, not just `cur` — without it, a coin that wicked below the rolling low
+    # intraday and then bounced back before this run would show a 90-day low contradicted by its
+    # own 24h range, since the 24h window is always inside the 90-day one.
     effective_low = None
     if ta and ta.get("rollingLow") is not None and cur is not None:
         candidates = [ta["rollingLow"], cur]
+        if low_24h is not None:
+            candidates.append(low_24h)
         if atl_within_window and atl_value is not None:
             candidates.append(atl_value)
         effective_low = min(candidates)
+
+    # Mirrored for the high side: fold in the all-time-high when it falls within the rolling
+    # window, and let live price or today's 24h-high reading set a fresh intraday high.
+    ath_within_window = False
+    if ath_date and ta and ta.get("rollingLowWindowDays") is not None:
+        ds = days_since(ath_date)
+        ath_within_window = ds is not None and ds <= ta["rollingLowWindowDays"]
+    effective_high = None
+    if ta and ta.get("rollingHigh") is not None and cur is not None:
+        candidates_h = [ta["rollingHigh"], cur]
+        if high_24h is not None:
+            candidates_h.append(high_24h)
+        if ath_within_window and ath_value is not None:
+            candidates_h.append(ath_value)
+        effective_high = max(candidates_h)
 
     dca_streak_day = None
     if signal == "WAIT":
@@ -400,7 +484,23 @@ def classify_holding(coin_id, md, item, ta, macro_ta, dca_log):
         else:
             reason = "Not enough price history loaded yet."
 
-    target = item.get("target")
+    # Interim range-trade signal (ported from the tracker's SWING TRIM): while a coin is just
+    # riding out a WAIT/HOLD stretch (not already ACCUMULATE, the ATH-tier TRIM, or a risk/
+    # liquidity call), a confirmed poke at the top of its own recent range — at a genuinely
+    # extreme RSI, not just "somewhat hot" — is a chance to bank a partial profit and rebuy
+    # lower, independent of whether the actual sell target has been reached.
+    if effective_high is not None and cur is not None and signal not in ("EXIT", "AT RISK", "ACCUMULATE", "TRIM"):
+        below_high_pct = (effective_high - cur) / effective_high * 100
+        near_high_threshold_pct = (ta or {}).get("nearLowThresholdPct", DCA_DIP_NEAR_PCT)
+        near_high = below_high_pct <= near_high_threshold_pct
+        rsi_overbought_threshold = (ta or {}).get("rsiOverboughtThreshold", RSI_OVERBOUGHT)
+        rsi_overbought = live_rsi is not None and live_rsi >= rsi_overbought_threshold
+        window_label = (ta or {}).get("rollingLowWindowDays", DCA_DIP_WINDOW_DAYS)
+        if near_high and rsi_overbought:
+            signal, strength = "SWING TRIM", max(strength, 50)
+            target_note = f" Still short of target (\u20b9{target:,.2f}), so this is a partial-profit/rebuy-lower play, not an exit." if target else ""
+            reason = f"{below_high_pct:.1f}% below its {window_label}-day high (band \u2264{near_high_threshold_pct:.1f}%), RSI {live_rsi:.0f} (overbought vs own \u2265{rsi_overbought_threshold:.0f}) — reasonable spot to trim into strength.{target_note}"
+
     if target and cur is not None and cur >= target * (1 - TARGET_PROXIMITY_PCT / 100) and signal not in ("EXIT", "AT RISK"):
         signal, strength = "TRIM", 55
         reason = f"Price is at/within {TARGET_PROXIMITY_PCT}% of target (\u20b9{target:,.2f})."
@@ -410,6 +510,7 @@ def classify_holding(coin_id, md, item, ta, macro_ta, dca_log):
         "athPct": ath_pct, "rsi": live_rsi, "sentiment": sentiment,
         "relStrengthVsBtc": rel_strength, "dcaStreakDay": dca_streak_day,
         "rsiOversoldThreshold": (ta or {}).get("rsiOversoldThreshold", RSI_OVERSOLD),
+        "rsiOverboughtThreshold": (ta or {}).get("rsiOverboughtThreshold", RSI_OVERBOUGHT),
         "nearLowThresholdPct": (ta or {}).get("nearLowThresholdPct", DCA_DIP_NEAR_PCT),
     }
 
@@ -438,13 +539,25 @@ def refresh_ta(state, ids):
         if closes:
             ta = compute_ta_from_closes(closes)
             if ta:
+                time.sleep(0.5)
+                ohlc = fetch_ohlc_extremes(cid, DCA_DIP_WINDOW_DAYS)
+                if ohlc:
+                    ta["rollingHigh"] = ohlc["high"]
+                    ta["rollingLow"] = ohlc["low"]
+                    ta["rollingHighDaysAgo"] = days_since_ts(ohlc["highTs"])
+                    ta["rollingLowDaysAgo"] = days_since_ts(ohlc["lowTs"])
+                    ta["rollingExtremesSource"] = "ohlc"
                 ta_cache[cid] = ta
                 updated += 1
         time.sleep(1.5)  # rate-limit, matches TA_FETCH_DELAY_MS
     return updated
 
 # ── Formatting ────────────────────────────────────────────────────
-SIGNAL_EMOJI = {"ACCUMULATE": "\U0001F7E2", "WAIT": "\u26AA", "HOLD": "\U0001F535", "TRIM": "\U0001F7E1", "EXIT": "\U0001F534", "AT RISK": "\U0001F7E0", "NA": "\u26AA"}
+SIGNAL_EMOJI = {
+    "ACCUMULATE": "\U0001F7E2", "WAIT": "\u26AA", "HOLD": "\U0001F535",
+    "TRIM": "\U0001F7E1", "SWING TRIM": "\U0001F7E3", "EXIT": "\U0001F534",
+    "AT RISK": "\U0001F7E0", "NA": "\u26AA",
+}
 
 def fmt_inr(n):
     if n is None:
