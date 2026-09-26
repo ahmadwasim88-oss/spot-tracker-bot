@@ -21,7 +21,7 @@ PORTFOLIO = {
     "polkadot":                {"symbol": "DOT",   "target": 1379.78},
     "theta-fuel":              {"symbol": "TFUEL", "target": 9.99},
     "polygon-ecosystem-token": {"symbol": "POL",   "target": 98.5},
-    "the-graph":               {"symbol": "GRT",   "target": 15.67},
+    "the-graph":               {"symbol": "GRT",   "target": 12.11},
     "avalanche-2":             {"symbol": "AVAX",  "target": 6612.02},
     "1inch":                   {"symbol": "1INCH", "target": 81.37},
     "internet-computer":       {"symbol": "ICP",   "target": 1765.6},
