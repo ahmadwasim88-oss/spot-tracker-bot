@@ -6,7 +6,7 @@
     "polkadot": "WAIT",
     "theta-fuel": "WAIT",
     "polygon-ecosystem-token": "WAIT",
-    "the-graph": "SWING TRIM",
+    "the-graph": "WAIT",
     "avalanche-2": "WAIT",
     "1inch": "WAIT",
     "internet-computer": "WAIT",
@@ -5073,6 +5073,6 @@
       "timestamp": 1790382221645.52
     }
   },
-  "last_daily": "2026-09-24",
+  "last_daily": "2026-09-26",
   "dca_log": {}
 }
