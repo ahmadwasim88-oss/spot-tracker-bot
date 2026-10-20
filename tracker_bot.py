@@ -11,7 +11,6 @@ API_BASE = "https://api.coingecko.com/api/v3"
 API_KEY = os.environ.get("COINGECKO_API_KEY", "")
 
 STATE_FILE = "state.json"
-
 # Coin list + INR targets, ported from the tracker's saved portfolio.
 # Edit this dict directly on GitHub to add/remove coins or change targets.
 PORTFOLIO = {
