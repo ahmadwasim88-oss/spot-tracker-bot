@@ -1,16 +1,21 @@
-name: Portfolio Tracker Bot
+name: Spot Tracker Bot
 
 on:
   schedule:
     - cron: '0 */2 * * *'
   workflow_dispatch:
+    inputs:
+      send_digest:
+        description: 'Send the signal digest to Telegram now'
+        type: boolean
+        default: false
   push:
     branches: [main]
 
 # Never run two scans at once: overlapping runs (a push landing near a cron tick) would both read the
 # same state.json and race to write it back. Queue instead of cancelling so no run is lost mid-save.
 concurrency:
-  group: portfolio-tracker-bot
+  group: spot-tracker-bot
   cancel-in-progress: false
 
 permissions:
@@ -38,12 +43,13 @@ jobs:
           TELEGRAM_TOKEN:     ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
           COINGECKO_API_KEY:  ${{ secrets.COINGECKO_API_KEY }}
+          FORCE_DIGEST:       ${{ github.event.inputs.send_digest }}
         run: python tracker_bot.py
 
       - name: Save state
         run: |
-          git config user.name "Portfolio Tracker Bot"
-          git config user.email "bot@portfoliotracker.com"
+          git config user.name "Spot Tracker Bot"
+          git config user.email "bot@spottracker.com"
           git add state.json
           if git diff --staged --quiet; then
             echo "No state change"
