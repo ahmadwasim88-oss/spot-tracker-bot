@@ -27,6 +27,7 @@
         "moderate": -26.702588556040627,
         "watch": -13.351294278020314
       },
+<<<<<<< Updated upstream
       "yearTiers": {
         "extreme": -40.05388283406094,
         "deep": -30.040412125545707,
@@ -35,6 +36,11 @@
       "emaLong": 392.0647741003043,
       "rollingLow": 243.42,
       "rollingLowDaysAgo": 67,
+=======
+      "emaLong": 392.0647741003043,
+      "rollingLow": 243.42,
+      "rollingLowDaysAgo": 66,
+>>>>>>> Stashed changes
       "rollingHigh": 545.37,
       "rollingHighDaysAgo": 38,
       "rollingLowWindowDays": 90,
@@ -406,6 +412,7 @@
         337.6939714507049,
         344.3799137791837
       ],
+<<<<<<< Updated upstream
       "schemaVersion": 4,
       "timestamp": 1792465961365.347,
       "closesEndTs": 1792454400000,
@@ -419,6 +426,10 @@
         "lowDaysAgo": 114,
         "lowSrc": "ohlc"
       }
+=======
+      "schemaVersion": 3,
+      "timestamp": 1792467738374.9585
+>>>>>>> Stashed changes
     },
     "kava": {
       "rsi": 61.42887010727063,
@@ -432,11 +443,14 @@
         "moderate": -24.0,
         "watch": -12
       },
+<<<<<<< Updated upstream
       "yearTiers": {
         "extreme": -36.0,
         "deep": -27.0,
         "moderate": -18.0
       },
+=======
+>>>>>>> Stashed changes
       "emaLong": 6.09303724036387,
       "rollingLow": 3.79,
       "rollingLowDaysAgo": 74,
@@ -811,6 +825,7 @@
         6.680009357823841,
         6.729904615467412
       ],
+<<<<<<< Updated upstream
       "schemaVersion": 4,
       "timestamp": 1792465964491.0205,
       "closesEndTs": 1792454400000,
@@ -824,6 +839,10 @@
         "lowDaysAgo": 134,
         "lowSrc": "ohlc"
       }
+=======
+      "schemaVersion": 3,
+      "timestamp": 1792467740663.7373
+>>>>>>> Stashed changes
     },
     "axie-infinity": {
       "rsi": 38.72243883551345,
@@ -837,6 +856,7 @@
         "moderate": -49.97562817030429,
         "watch": -24.987814085152145
       },
+<<<<<<< Updated upstream
       "yearTiers": {
         "extreme": -74.96344225545644,
         "deep": -56.22258169159233,
@@ -847,6 +867,13 @@
       "rollingLowDaysAgo": 82,
       "rollingHigh": 140.47346448689183,
       "rollingHighDaysAgo": 16,
+=======
+      "emaLong": 101.7272073273931,
+      "rollingLow": 76.7,
+      "rollingLowDaysAgo": 82,
+      "rollingHigh": 140.47,
+      "rollingHighDaysAgo": 14,
+>>>>>>> Stashed changes
       "rollingLowWindowDays": 90,
       "rollingExtremesSource": "hourly",
       "closes": [
@@ -1216,6 +1243,7 @@
         95.88194293554378,
         95.40251075095064
       ],
+<<<<<<< Updated upstream
       "schemaVersion": 4,
       "timestamp": 1792465967534.7769,
       "closesEndTs": 1792454400000,
@@ -1229,6 +1257,10 @@
         "lowDaysAgo": 302,
         "lowSrc": "ohlc"
       }
+=======
+      "schemaVersion": 3,
+      "timestamp": 1792467743023.585
+>>>>>>> Stashed changes
     },
     "polkadot": {
       "rsi": 49.18326443560602,
@@ -1242,6 +1274,7 @@
         "moderate": -43.00180076388732,
         "watch": -21.50090038194366
       },
+<<<<<<< Updated upstream
       "yearTiers": {
         "extreme": -64.50270114583098,
         "deep": -48.377025859373234,
@@ -1252,6 +1285,13 @@
       "rollingLowDaysAgo": 63,
       "rollingHigh": 124.95,
       "rollingHighDaysAgo": 23,
+=======
+      "emaLong": 110.45359842658426,
+      "rollingLow": 69.57,
+      "rollingLowDaysAgo": 62,
+      "rollingHigh": 124.95,
+      "rollingHighDaysAgo": 22,
+>>>>>>> Stashed changes
       "rollingLowWindowDays": 90,
       "rollingExtremesSource": "hourly",
       "closes": [
@@ -1621,6 +1661,7 @@
         106.01211126555242,
         109.42863447407714
       ],
+<<<<<<< Updated upstream
       "schemaVersion": 4,
       "timestamp": 1792465970646.546,
       "closesEndTs": 1792454400000,
@@ -1634,6 +1675,10 @@
         "lowDaysAgo": 63,
         "lowSrc": "hourly"
       }
+=======
+      "schemaVersion": 3,
+      "timestamp": 1792467745297.626
+>>>>>>> Stashed changes
     },
     "theta-fuel": {
       "rsi": 36.54958949856822,
@@ -1647,6 +1692,7 @@
         "moderate": -29.501085788899868,
         "watch": -14.750542894449934
       },
+<<<<<<< Updated upstream
       "yearTiers": {
         "extreme": -44.2516286833498,
         "deep": -33.18872151251235,
@@ -1655,6 +1701,11 @@
       "emaLong": 1.006893265223723,
       "rollingLow": 0.67408,
       "rollingLowDaysAgo": 67,
+=======
+      "emaLong": 1.006893265223723,
+      "rollingLow": 0.67408,
+      "rollingLowDaysAgo": 66,
+>>>>>>> Stashed changes
       "rollingHigh": 1.32,
       "rollingHighDaysAgo": 38,
       "rollingLowWindowDays": 90,
@@ -2026,6 +2077,7 @@
         0.8225510144880473,
         0.8415359270618346
       ],
+<<<<<<< Updated upstream
       "schemaVersion": 4,
       "timestamp": 1792465973747.738,
       "closesEndTs": 1792454400000,
@@ -2039,6 +2091,10 @@
         "lowDaysAgo": 67,
         "lowSrc": "hourly"
       }
+=======
+      "schemaVersion": 3,
+      "timestamp": 1792467747610.0283
+>>>>>>> Stashed changes
     },
     "polygon-ecosystem-token": {
       "rsi": 37.60575856037111,
@@ -2052,6 +2108,7 @@
         "moderate": -32.71307673470288,
         "watch": -16.35653836735144
       },
+<<<<<<< Updated upstream
       "yearTiers": {
         "extreme": -49.06961510205432,
         "deep": -36.80221132654074,
@@ -2060,6 +2117,11 @@
       "emaLong": 9.228742903411485,
       "rollingLow": 6.71,
       "rollingLowDaysAgo": 82,
+=======
+      "emaLong": 9.228742903411485,
+      "rollingLow": 6.71,
+      "rollingLowDaysAgo": 78,
+>>>>>>> Stashed changes
       "rollingHigh": 12.24,
       "rollingHighDaysAgo": 54,
       "rollingLowWindowDays": 90,
@@ -2431,6 +2493,7 @@
         8.67700541312546,
         8.799571826903504
       ],
+<<<<<<< Updated upstream
       "schemaVersion": 4,
       "timestamp": 1792465976813.2444,
       "closesEndTs": 1792454400000,
@@ -2444,6 +2507,10 @@
         "lowDaysAgo": 114,
         "lowSrc": "ohlc"
       }
+=======
+      "schemaVersion": 3,
+      "timestamp": 1792467749915.4976
+>>>>>>> Stashed changes
     },
     "the-graph": {
       "rsi": 42.85729709634588,
@@ -2457,11 +2524,14 @@
         "moderate": -38.33701163775898,
         "watch": -19.16850581887949
       },
+<<<<<<< Updated upstream
       "yearTiers": {
         "extreme": -57.505517456638465,
         "deep": -43.12913809247885,
         "moderate": -28.752758728319233
       },
+=======
+>>>>>>> Stashed changes
       "emaLong": 2.3093396586572603,
       "rollingLow": 1.24,
       "rollingLowDaysAgo": 62,
@@ -2836,6 +2906,7 @@
         2.235047408009894,
         2.2607815410791208
       ],
+<<<<<<< Updated upstream
       "schemaVersion": 4,
       "timestamp": 1792465979896.5645,
       "closesEndTs": 1792454400000,
@@ -2849,6 +2920,10 @@
         "lowDaysAgo": 62,
         "lowSrc": "hourly"
       }
+=======
+      "schemaVersion": 3,
+      "timestamp": 1792467752195.416
+>>>>>>> Stashed changes
     },
     "avalanche-2": {
       "rsi": 42.58467634528175,
@@ -2862,6 +2937,7 @@
         "moderate": -34.97374238556768,
         "watch": -17.48687119278384
       },
+<<<<<<< Updated upstream
       "yearTiers": {
         "extreme": -52.46061357835153,
         "deep": -39.34546018376364,
@@ -2872,6 +2948,13 @@
       "rollingLowDaysAgo": 79,
       "rollingHigh": 1150.32,
       "rollingHighDaysAgo": 21,
+=======
+      "emaLong": 850.2929647654313,
+      "rollingLow": 578.13,
+      "rollingLowDaysAgo": 78,
+      "rollingHigh": 1150.32,
+      "rollingHighDaysAgo": 18,
+>>>>>>> Stashed changes
       "rollingLowWindowDays": 90,
       "rollingExtremesSource": "hourly",
       "closes": [
@@ -3241,6 +3324,7 @@
         927.4593720702703,
         912.0203101725072
       ],
+<<<<<<< Updated upstream
       "schemaVersion": 4,
       "timestamp": 1792465982964.33,
       "closesEndTs": 1792454400000,
@@ -3254,6 +3338,10 @@
         "lowDaysAgo": 122,
         "lowSrc": "ohlc"
       }
+=======
+      "schemaVersion": 3,
+      "timestamp": 1792467754597.1401
+>>>>>>> Stashed changes
     },
     "1inch": {
       "rsi": 39.01486930082301,
@@ -3267,6 +3355,7 @@
         "moderate": -24.0,
         "watch": -12
       },
+<<<<<<< Updated upstream
       "yearTiers": {
         "extreme": -36.0,
         "deep": -27.0,
@@ -3275,6 +3364,11 @@
       "emaLong": 9.16325700143206,
       "rollingLow": 7.59,
       "rollingLowDaysAgo": 78,
+=======
+      "emaLong": 9.16325700143206,
+      "rollingLow": 6.98,
+      "rollingLowDaysAgo": 90,
+>>>>>>> Stashed changes
       "rollingHigh": 10.42,
       "rollingHighDaysAgo": 14,
       "rollingLowWindowDays": 90,
@@ -3646,6 +3740,7 @@
         8.750690036125537,
         8.77734191960311
       ],
+<<<<<<< Updated upstream
       "schemaVersion": 4,
       "timestamp": 1792465986064.421,
       "closesEndTs": 1792454400000,
@@ -3659,6 +3754,10 @@
         "lowDaysAgo": 114,
         "lowSrc": "ohlc"
       }
+=======
+      "schemaVersion": 3,
+      "timestamp": 1792467756942.014
+>>>>>>> Stashed changes
     },
     "internet-computer": {
       "rsi": 42.02755285257972,
@@ -3672,6 +3771,7 @@
         "moderate": -47.99149378329923,
         "watch": -23.995746891649613
       },
+<<<<<<< Updated upstream
       "yearTiers": {
         "extreme": -71.98724067494884,
         "deep": -53.99043050621163,
@@ -3680,6 +3780,11 @@
       "emaLong": 260.83326632092314,
       "rollingLow": 191.06,
       "rollingLowDaysAgo": 79,
+=======
+      "emaLong": 260.83326632092314,
+      "rollingLow": 191.06,
+      "rollingLowDaysAgo": 78,
+>>>>>>> Stashed changes
       "rollingHigh": 347.05,
       "rollingHighDaysAgo": 14,
       "rollingLowWindowDays": 90,
@@ -4051,6 +4156,7 @@
         274.9278558782601,
         271.9150399820045
       ],
+<<<<<<< Updated upstream
       "schemaVersion": 4,
       "timestamp": 1792465989181.9717,
       "closesEndTs": 1792454400000,
@@ -4064,6 +4170,10 @@
         "lowDaysAgo": 238,
         "lowSrc": "ohlc"
       }
+=======
+      "schemaVersion": 3,
+      "timestamp": 1792467759290.3062
+>>>>>>> Stashed changes
     },
     "nano": {
       "rsi": 42.54634447879835,
@@ -4077,6 +4187,7 @@
         "moderate": -29.984148508967948,
         "watch": -14.992074254483974
       },
+<<<<<<< Updated upstream
       "yearTiers": {
         "extreme": -44.97622276345192,
         "deep": -33.73216707258894,
@@ -4087,6 +4198,13 @@
       "rollingLowDaysAgo": 34,
       "rollingHigh": 49.09,
       "rollingHighDaysAgo": 26,
+=======
+      "emaLong": 39.96635861256589,
+      "rollingLow": 29.25,
+      "rollingLowDaysAgo": 34,
+      "rollingHigh": 55.35,
+      "rollingHighDaysAgo": 90,
+>>>>>>> Stashed changes
       "rollingLowWindowDays": 90,
       "rollingExtremesSource": "ohlc",
       "closes": [
@@ -4456,6 +4574,7 @@
         32.05262769007218,
         31.773974552299737
       ],
+<<<<<<< Updated upstream
       "schemaVersion": 4,
       "timestamp": 1792465992238.2605,
       "closesEndTs": 1792454400000,
@@ -4469,6 +4588,10 @@
         "lowDaysAgo": 114,
         "lowSrc": "ohlc"
       }
+=======
+      "schemaVersion": 3,
+      "timestamp": 1792467761609.85
+>>>>>>> Stashed changes
     },
     "ethereum": {
       "rsi": 35.58597977815397,
@@ -4482,6 +4605,7 @@
         "moderate": -24.0,
         "watch": -12
       },
+<<<<<<< Updated upstream
       "yearTiers": {
         "extreme": -36.0,
         "deep": -27.0,
@@ -4492,6 +4616,13 @@
       "rollingLowDaysAgo": 79,
       "rollingHigh": 269265.0,
       "rollingHighDaysAgo": 28,
+=======
+      "emaLong": 220354.19777753187,
+      "rollingLow": 173956.0,
+      "rollingLowDaysAgo": 78,
+      "rollingHigh": 269265.0,
+      "rollingHighDaysAgo": 26,
+>>>>>>> Stashed changes
       "rollingLowWindowDays": 90,
       "rollingExtremesSource": "hourly",
       "closes": [
@@ -4861,6 +4992,7 @@
         228692.8979956518,
         228549.35960038283
       ],
+<<<<<<< Updated upstream
       "schemaVersion": 4,
       "timestamp": 1792465995283.7153,
       "closesEndTs": 1792454400000,
@@ -4874,6 +5006,10 @@
         "lowDaysAgo": 114,
         "lowSrc": "ohlc"
       }
+=======
+      "schemaVersion": 3,
+      "timestamp": 1792467763956.4019
+>>>>>>> Stashed changes
     },
     "bitcoin": {
       "rsi": 45.364444207994545,
@@ -4887,6 +5023,7 @@
         "moderate": -24.0,
         "watch": -12
       },
+<<<<<<< Updated upstream
       "yearTiers": {
         "extreme": -36.0,
         "deep": -27.0,
@@ -4897,6 +5034,13 @@
       "rollingLowDaysAgo": 78,
       "rollingHigh": 8384940.0,
       "rollingHighDaysAgo": 27,
+=======
+      "emaLong": 7204504.870299755,
+      "rollingLow": 5937948.0,
+      "rollingLowDaysAgo": 74,
+      "rollingHigh": 8384940.0,
+      "rollingHighDaysAgo": 26,
+>>>>>>> Stashed changes
       "rollingLowWindowDays": 90,
       "rollingExtremesSource": "hourly",
       "closes": [
@@ -5266,6 +5410,7 @@
         7790084.734771902,
         7777711.548082065
       ],
+<<<<<<< Updated upstream
       "schemaVersion": 4,
       "timestamp": 1792465998267.6418,
       "closesEndTs": 1792454400000,
@@ -5279,6 +5424,10 @@
         "lowDaysAgo": 254,
         "lowSrc": "ohlc"
       }
+=======
+      "schemaVersion": 3,
+      "timestamp": 1792467766238.1045
+>>>>>>> Stashed changes
     }
   },
   "last_daily": "2026-10-20",
