@@ -780,7 +780,10 @@ def main():
 
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     hour = datetime.now(timezone.utc).hour
-    if state.get("last_daily") != today and 3 <= hour < 5:
+    if force_digest:
+        send_telegram(digest_message(results))
+        print("Digest sent (manual request).")
+    elif state.get("last_daily") != today and 3 <= hour < 5:
         send_telegram(digest_message(results))
         state["last_daily"] = today
         print("Daily digest sent.")
