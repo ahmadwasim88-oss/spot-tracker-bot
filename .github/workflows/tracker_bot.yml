@@ -1,4 +1,4 @@
-name: Spot Tracker Bot
+name: Portfolio Tracker Bot
 
 on:
   schedule:
@@ -7,9 +7,19 @@ on:
   push:
     branches: [main]
 
+# Never run two scans at once: overlapping runs (a push landing near a cron tick) would both read the
+# same state.json and race to write it back. Queue instead of cancelling so no run is lost mid-save.
+concurrency:
+  group: portfolio-tracker-bot
+  cancel-in-progress: false
+
+permissions:
+  contents: write   # needed to commit state.json back
+
 jobs:
   scan:
     runs-on: ubuntu-latest
+    timeout-minutes: 15   # a normal run is ~1-2 min; this only stops a hung API call from running for hours
     steps:
       - uses: actions/checkout@v4
         with:
@@ -32,11 +42,23 @@ jobs:
 
       - name: Save state
         run: |
-          git config user.name "Spot Tracker Bot"
-          git config user.email "bot@spottracker.com"
-          git stash
-          git pull --rebase origin main
-          git stash pop || true
+          git config user.name "Portfolio Tracker Bot"
+          git config user.email "bot@portfoliotracker.com"
           git add state.json
-          git diff --staged --quiet || git commit -m "Update state [skip ci]"
-          git push
+          if git diff --staged --quiet; then
+            echo "No state change"
+            exit 0
+          fi
+          git commit -m "Update state [skip ci]"
+          # Commit first, then rebase onto whatever landed meanwhile. In a rebase, "theirs" is the commit
+          # being replayed (ours), so -X theirs keeps this run's state.json on any conflict instead of
+          # leaving conflict markers in the file.
+          for i in 1 2 3; do
+            if git pull --rebase -X theirs origin main && git push; then
+              exit 0
+            fi
+            git rebase --abort 2>/dev/null || true
+            sleep 5
+          done
+          echo "Could not push state.json after 3 attempts"
+          exit 1
