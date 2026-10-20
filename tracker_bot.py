@@ -90,7 +90,19 @@ DCA_NEAR_LOW_MULT = 1.0
 DCA_NEAR_LOW_FLOOR_PCT = 1.5
 DCA_NEAR_LOW_CEIL_PCT = 8
 
-TA_SCHEMA_VERSION = 3  # bumped: now also fetches true OHLC 90d high/low and an adaptive RSI-overbought threshold
+# Entry-depth reference: drawdown from the trailing 365d high. ATH stays the coarse quality/discount
+# filter, but for old coins it's years stale (-98% for everything from the last cycle) and can't say
+# whether there's a real, recent pullback to buy. Tiers are volatility-scaled like the ATH ones; only
+# "moderate" gates WAIT vs HOLD, the others just grade the WAIT strength.
+YEAR_HIGH_DAYS = 365
+DCA_YEAR_EXTREME_PCT  = -60
+DCA_YEAR_DEEP_PCT     = -45
+DCA_YEAR_MODERATE_PCT = -30
+YEAR_TIER_ABS_FLOOR_PCT = -80
+YEAR_TIER_ABS_CEIL_PCT  = -10
+TA_MAX_DATA_AGE_MS = 3 * 24 * 3600 * 1000  # daily history must end within 3 days of now
+
+TA_SCHEMA_VERSION = 4  # bumped: 90d extremes from hourly data + in-window OHLC wicks, 365d range/tiers, freshness guard
 
 # ── Telegram ──────────────────────────────────────────────────────
 def send_telegram(msg):
@@ -233,6 +245,15 @@ def compute_ta_from_closes(closes):
         "watch": clamp_tier(DCA_WATCH_PCT),
     }
 
+    def clamp_year_tier(base):
+        return max(YEAR_TIER_ABS_FLOOR_PCT, min(YEAR_TIER_ABS_CEIL_PCT, base * vol_scale))
+
+    year_tiers = {
+        "extreme": clamp_year_tier(DCA_YEAR_EXTREME_PCT),
+        "deep": clamp_year_tier(DCA_YEAR_DEEP_PCT),
+        "moderate": clamp_year_tier(DCA_YEAR_MODERATE_PCT),
+    }
+
     return {
         "rsi": rsi_series[-1] if rsi_series else None,
         "rsiOversoldThreshold": rsi_oversold_threshold,
@@ -240,6 +261,7 @@ def compute_ta_from_closes(closes):
         "avgDailyMove": avg_daily_move,
         "nearLowThresholdPct": near_low_threshold_pct,
         "athTiers": ath_tiers,
+        "yearTiers": year_tiers,
         "emaLong": ema_long_series[-1] if ema_long_series else None,
         "rollingLow": rolling_low,
         "rollingLowDaysAgo": (len(dip_window) - rolling_low_index) if rolling_low_index >= 0 else None,
@@ -284,41 +306,98 @@ def fetch_ta_history(coin_id):
         last_date = datetime.utcfromtimestamp(points[-1][0] / 1000).strftime("%Y-%m-%d")
         today = datetime.utcnow().strftime("%Y-%m-%d")
         usable = points[:-1] if last_date == today else points
-        return [p[1] for p in usable]
+        if not usable:
+            return None
+        # (closes, timestamp-of-last-close in ms) — the timestamp feeds the freshness guard
+        return [p[1] for p in usable], usable[-1][0]
     except Exception as e:
         print(f"TA fetch failed for {coin_id}: {e}")
         return None
 
-# The daily "closes" above are one snapshot price per day — they never see the intraday wick a
-# coin actually touched, so a rolling min/max of closes always understates the real 90-day range
-# you'd see on an exchange chart. CoinGecko's OHLC endpoint returns actual candle highs/lows
-# instead — coarser (4-day candles this far back) but far closer to the real chart than closes.
-def fetch_ohlc_extremes(coin_id, days):
+# ── True high/low sources ─────────────────────────────────────────
+# Daily closes are one snapshot per day and never see intraday wicks, so extremes built from them
+# understate the real range. Two CoinGecko sources fix that:
+#  * OHLC (365d): 4-day candles with real wick highs/lows. Price is exact; the DATE is only good to
+#    the 4-day bucket, and the oldest candle can straddle the window edge.
+#  * market_chart for 90d with no `interval`: CoinGecko auto-granularity returns HOURLY points for
+#    windows of 2-90 days — exact window edge and hour-level dates, price within the sub-hour wick.
+def _get_json(url, params):
     try:
-        r = requests.get(
-            f"{API_BASE}/coins/{coin_id}/ohlc",
-            params={"vs_currency": "inr", "days": days, "x_cg_demo_api_key": API_KEY},
-            timeout=10,
-        )
+        r = requests.get(url, params=params, timeout=10)
         r.raise_for_status()
-        data = r.json()
-        if not isinstance(data, list) or not data:
-            return None
-        high_val, high_ts, low_val, low_ts = float("-inf"), None, float("inf"), None
-        for candle in data:
-            if not isinstance(candle, list) or len(candle) < 5:
-                continue
-            ts, _open, high, low = candle[0], candle[1], candle[2], candle[3]
-            if high is not None and high > high_val:
-                high_val, high_ts = high, ts
-            if low is not None and low < low_val:
-                low_val, low_ts = low, ts
-        if high_val == float("-inf") or low_val == float("inf") or high_ts is None or low_ts is None:
-            return None
-        return {"high": high_val, "highTs": high_ts, "low": low_val, "lowTs": low_ts}
+        return r.json()
     except Exception as e:
-        print(f"OHLC fetch failed for {coin_id}: {e}")
+        print(f"Fetch failed {url}: {e}")
         return None
+
+def fetch_range_extremes(coin_id):
+    DAY = 86400000
+    BUCKET = 4 * DAY
+    now = time.time() * 1000
+    cutoff90 = now - DCA_DIP_WINDOW_DAYS * DAY
+    cutoff_year = now - YEAR_HIGH_DAYS * DAY
+
+    ohlc = _get_json(f"{API_BASE}/coins/{coin_id}/ohlc",
+                     {"vs_currency": "inr", "days": YEAR_HIGH_DAYS, "x_cg_demo_api_key": API_KEY})
+    time.sleep(0.5)
+    hourly = _get_json(f"{API_BASE}/coins/{coin_id}/market_chart",
+                       {"vs_currency": "inr", "days": DCA_DIP_WINDOW_DAYS, "x_cg_demo_api_key": API_KEY})
+
+    slots = {"d90High": None, "d90Low": None, "yHigh": None, "yLow": None}
+
+    def take(key, val, ts, src, is_high):
+        if val is None or ts is None or val != val:  # None / NaN
+            return
+        cur = slots[key]
+        if cur is None or (val > cur["val"] if is_high else val < cur["val"]):
+            slots[key] = {"val": val, "ts": ts, "src": src}
+
+    any_data = False
+    if isinstance(ohlc, list):
+        for c in ohlc:
+            if not isinstance(c, list) or len(c) < 5:
+                continue
+            ts, high, low = c[0], c[2], c[3]
+            if ts is None or ts < cutoff_year:
+                continue
+            any_data = True
+            take("yHigh", high, ts, "ohlc", True)
+            take("yLow", low, ts, "ohlc", False)
+            # only candles fully inside the 90d window (valid whether ts is candle start or end)
+            if ts >= cutoff90 + BUCKET:
+                take("d90High", high, ts, "ohlc", True)
+                take("d90Low", low, ts, "ohlc", False)
+
+    pts = hourly.get("prices") if isinstance(hourly, dict) else None
+    if isinstance(pts, list):
+        for pt in pts:
+            if not isinstance(pt, list) or len(pt) < 2 or pt[0] < cutoff90:
+                continue
+            any_data = True
+            take("d90High", pt[1], pt[0], "hourly", True)
+            take("d90Low", pt[1], pt[0], "hourly", False)
+            take("yHigh", pt[1], pt[0], "hourly", True)
+            take("yLow", pt[1], pt[0], "hourly", False)
+
+        # Date refinement: a wick from a 4-day candle only pins the extreme to "somewhere in that
+        # bucket". Snap the date to the hour whose price sits closest to the wick (accepted only
+        # within REFINE_TOL, so a coincidental match on another day can't win). The wick PRICE is
+        # kept; only the date improves, and the entry then counts as exact.
+        REFINE_TOL = 0.015
+        for sl in slots.values():
+            if not sl or sl["src"] != "ohlc":
+                continue
+            best, best_diff = None, float("inf")
+            for pt in pts:
+                if not isinstance(pt, list) or len(pt) < 2 or abs(pt[0] - sl["ts"]) > BUCKET:
+                    continue
+                diff = abs(pt[1] - sl["val"])
+                if diff < best_diff:
+                    best_diff, best = diff, pt
+            if best is not None and best_diff / sl["val"] <= REFINE_TOL:
+                sl["ts"], sl["src"] = best[0], "hourly"
+
+    return slots if any_data else None
 
 def fetch_market_data(ids):
     try:
@@ -354,6 +433,45 @@ def fetch_market_data(ids):
         return None
 
 # ── Signal engine (ported 1:1 from classifyHolding) ─────────────────
+# Trailing-365d range and the current drawdown from its high. Returns None without ~a year of history.
+# Built from daily closes, then widened by (in order): stored wick extremes from OHLC/hourly data, the
+# all-time high/low when they fall inside the window (closes miss intraday wicks, so a recent ATL would
+# otherwise read higher than itself), and finally live price / the 24h range.
+# highSrc/lowSrc track date precision: "ohlc" = only good to a 4-day candle.
+def year_high_drawdown(closes, cur, high_24h, low_24h, ath_value, ath_date, atl_value, atl_date, stored):
+    if not closes or len(closes) < YEAR_HIGH_DAYS - 20 or cur is None:
+        return None
+    w = closes[-YEAR_HIGH_DAYS:]
+    high, low = max(w), min(w)
+    high_days, low_days = len(w) - w.index(high), len(w) - w.index(low)
+    high_src = low_src = "closes"
+    if stored:
+        if stored.get("high") is not None and stored["high"] > high:
+            high, high_days, high_src = stored["high"], stored.get("highDaysAgo"), stored.get("highSrc") or "ohlc"
+        if stored.get("low") is not None and stored["low"] < low:
+            low, low_days, low_src = stored["low"], stored.get("lowDaysAgo"), stored.get("lowSrc") or "ohlc"
+    # <= 0.5% tolerance: when a candle wick IS the all-time extreme (same price), prefer the ATL/ATH's
+    # exact date over the candle's 4-day-bucket date so the two agree.
+    ds_atl = days_since(atl_date) if atl_value is not None and atl_date else None
+    if ds_atl is not None and ds_atl <= YEAR_HIGH_DAYS and atl_value <= low * 1.005:
+        low, low_days, low_src = min(low, atl_value), ds_atl, "exact"
+    ds_ath = days_since(ath_date) if ath_value is not None and ath_date else None
+    if ds_ath is not None and ds_ath <= YEAR_HIGH_DAYS and ath_value >= high * 0.995:
+        high, high_days, high_src = max(high, ath_value), ds_ath, "exact"
+    live_high = max(cur, high_24h) if high_24h is not None else cur
+    live_low = min(cur, low_24h) if low_24h is not None else cur
+    if live_high > high:
+        high, high_days, high_src = live_high, 0, "exact"
+    if live_low < low:
+        low, low_days, low_src = live_low, 0, "exact"
+    return {
+        "high": high, "low": low, "highDaysAgo": high_days, "lowDaysAgo": low_days,
+        "highApprox": high_src == "ohlc", "lowApprox": low_src == "ohlc",
+        "pct": (cur - high) / high * 100,       # drawdown from the 365d high (<= 0)
+        "abovePct": (cur - low) / low * 100,    # distance above the 365d low (>= 0)
+        "rangePos": (cur - low) / (high - low) * 100 if high > low else None,  # 0 = at low, 100 = at high
+    }
+
 def classify_holding(coin_id, md, item, ta, macro_ta, dca_log):
     if md is None:
         return {"signal": "NA", "strength": 0, "reason": "No market data yet.", "cmp": None}
@@ -396,6 +514,10 @@ def classify_holding(coin_id, md, item, ta, macro_ta, dca_log):
 
     depth = abs(ath_pct) if ath_pct is not None else None
     ath_tiers = (ta or {}).get("athTiers") or {"extreme": DCA_EXTREME_PCT, "deep": DCA_DEEP_PCT, "moderate": DCA_MODERATE_PCT, "watch": DCA_WATCH_PCT}
+    year_tiers = (ta or {}).get("yearTiers") or {"extreme": DCA_YEAR_EXTREME_PCT, "deep": DCA_YEAR_DEEP_PCT, "moderate": DCA_YEAR_MODERATE_PCT}
+    yr = year_high_drawdown(ta.get("closes") if ta else None, cur, high_24h, low_24h,
+                            ath_value, ath_date, atl_value, atl_date, (ta or {}).get("year"))
+    yr_note = f", {abs(yr['pct']):.0f}% below {YEAR_HIGH_DAYS}d high" if yr else ""
 
     if dead_liquidity:
         signal, strength = "EXIT", (90 if (no_trading_data or zero_mcap) else max(60, min(95, round(100 - (vol_mcap_ratio or 0) / LIQUIDITY_DEAD_RATIO * 40))))
@@ -407,12 +529,17 @@ def classify_holding(coin_id, md, item, ta, macro_ta, dca_log):
         signal, strength = "AT RISK", 50
         reason = f"Micro-cap ({mcap:,.0f}, rank {rank}) with real survival risk."
     elif ath_pct is not None:
-        if ath_pct <= ath_tiers["extreme"]:
-            signal, strength, reason = "WAIT", 20, f"{depth:.0f}% below ATH — statistically extreme."
-        elif ath_pct <= ath_tiers["deep"]:
-            signal, strength, reason = "WAIT", 30, f"{depth:.0f}% below ATH — deep discount."
+        if ath_pct <= ath_tiers["moderate"] and yr is not None and yr["pct"] > year_tiers["moderate"]:
+            # Discounted vs ATH, but no real pullback from the past year's high — nothing recent to buy.
+            signal, strength = "HOLD", 35
+            reason = (f"{depth:.0f}% below ATH, but only {abs(yr['pct']):.0f}% below its {YEAR_HIGH_DAYS}d high "
+                      f"(needs \u2265{abs(year_tiers['moderate']):.0f}% for this coin) — no meaningful recent pullback to buy.")
+        elif ath_pct <= ath_tiers["extreme"] and (yr is None or yr["pct"] <= year_tiers["extreme"]):
+            signal, strength, reason = "WAIT", 20, f"{depth:.0f}% below ATH{yr_note} — statistically extreme."
+        elif ath_pct <= ath_tiers["deep"] and (yr is None or yr["pct"] <= year_tiers["deep"]):
+            signal, strength, reason = "WAIT", 30, f"{depth:.0f}% below ATH{yr_note} — deep discount."
         elif ath_pct <= ath_tiers["moderate"]:
-            signal, strength, reason = "WAIT", 25, f"{depth:.0f}% below ATH — meaningful discount."
+            signal, strength, reason = "WAIT", 25, f"{depth:.0f}% below ATH{yr_note} — meaningful discount."
         elif ath_pct <= ath_tiers["watch"]:
             signal, strength, reason = "HOLD", 35, f"Only {depth:.0f}% below ATH — not deep enough yet."
         else:
@@ -473,14 +600,14 @@ def classify_holding(coin_id, md, item, ta, macro_ta, dca_log):
                 gap_cleared = last_log is None or gap_pct >= dyn_gap_pct
                 if gap_cleared:
                     signal, strength = "ACCUMULATE", round(min(60, strength + 30) + rel_bonus)
-                    reason = f"{depth:.0f}% below ATH, {above_low:.1f}% above its {ta['rollingLowWindowDays']}-day low (band \u2264{near_low_threshold_pct:.1f}%), RSI {live_rsi:.0f} (oversold vs own \u2264{rsi_threshold:.0f}) — day {dca_streak_day}.{rel_note}"
+                    reason = f"{depth:.0f}% below ATH{yr_note}, {above_low:.1f}% above its {ta['rollingLowWindowDays']}-day low (band \u2264{near_low_threshold_pct:.1f}%), RSI {live_rsi:.0f} (oversold vs own \u2264{rsi_threshold:.0f}) — day {dca_streak_day}.{rel_note}"
                 else:
                     reason = f"Meets add conditions (day {dca_streak_day}) but only {gap_pct:.1f}% below last logged DCA — needs \u2265{dyn_gap_pct:.1f}%.{rel_note}"
             else:
                 if near_low and not rsi_oversold:
-                    reason = f"{depth:.0f}% below ATH and near its {ta['rollingLowWindowDays']}-day low, but RSI ({'—' if live_rsi is None else f'{live_rsi:.0f}'}) hasn't reached its own oversold zone (\u2264{rsi_threshold:.0f}) yet."
+                    reason = f"{depth:.0f}% below ATH{yr_note} and near its {ta['rollingLowWindowDays']}-day low, but RSI ({'—' if live_rsi is None else f'{live_rsi:.0f}'}) hasn't reached its own oversold zone (\u2264{rsi_threshold:.0f}) yet."
                 else:
-                    reason = f"{depth:.0f}% below ATH, but {abs(above_low):.1f}% {'above' if above_low >= 0 else 'below'} its {ta['rollingLowWindowDays']}-day low — outside its own \u2264{near_low_threshold_pct:.1f}% near-low band."
+                    reason = f"{depth:.0f}% below ATH{yr_note}, but {abs(above_low):.1f}% {'above' if above_low >= 0 else 'below'} its {ta['rollingLowWindowDays']}-day low — outside its own \u2264{near_low_threshold_pct:.1f}% near-low band."
         else:
             reason = "Not enough price history loaded yet."
 
@@ -512,6 +639,8 @@ def classify_holding(coin_id, md, item, ta, macro_ta, dca_log):
         "rsiOversoldThreshold": (ta or {}).get("rsiOversoldThreshold", RSI_OVERSOLD),
         "rsiOverboughtThreshold": (ta or {}).get("rsiOverboughtThreshold", RSI_OVERBOUGHT),
         "nearLowThresholdPct": (ta or {}).get("nearLowThresholdPct", DCA_DIP_NEAR_PCT),
+        "high365": yr["high"] if yr else None, "low365": yr["low"] if yr else None,
+        "drawdown365": yr["pct"] if yr else None, "range365Pos": yr["rangePos"] if yr else None,
     }
 
 # ── TA refresh (once/day, boundary-aligned like taBoundaryPassedSince) ──
@@ -527,29 +656,60 @@ def ta_boundary_passed_since(ts_ms):
 
 def refresh_ta(state, ids):
     ta_cache = state.setdefault("ta_cache", {})
-    stale = [
-        cid for cid in ids
-        if cid not in ta_cache
-        or ta_boundary_passed_since(ta_cache[cid].get("timestamp"))
-        or ta_cache[cid].get("schemaVersion") != TA_SCHEMA_VERSION
-    ]
-    updated = 0
+    now_ms = time.time() * 1000
+
+    def needs_refresh(cid):
+        c = ta_cache.get(cid)
+        if c is None or ta_boundary_passed_since(c.get("timestamp")) or c.get("schemaVersion") != TA_SCHEMA_VERSION:
+            return True
+        # self-heal: a cached history that ended long ago is retried (at most every 6h)
+        end = c.get("closesEndTs")
+        return bool(end and now_ms - end > TA_MAX_DATA_AGE_MS and now_ms - (c.get("timestamp") or 0) > 6 * 3600 * 1000)
+
+    stale = [cid for cid in ids if needs_refresh(cid)]
+    updated = stale_feeds = 0
     for cid in stale:
-        closes = fetch_ta_history(cid)
-        if closes:
+        res = fetch_ta_history(cid)
+        if res:
+            closes, last_ts = res
+            # Freshness guard: a daily series that ends days ago makes every window, RSI and EMA read
+            # from the wrong dates. Reject it and keep whatever was cached instead.
+            if last_ts is None or now_ms - last_ts > TA_MAX_DATA_AGE_MS:
+                stale_feeds += 1
+                end = datetime.fromtimestamp(last_ts / 1000, tz=timezone.utc).strftime("%Y-%m-%d") if last_ts else "unknown"
+                print(f"Daily history for {cid} ends {end} — too old, discarded.")
+                time.sleep(1.5)
+                continue
             ta = compute_ta_from_closes(closes)
             if ta:
+                ta["closesEndTs"] = last_ts
                 time.sleep(0.5)
-                ohlc = fetch_ohlc_extremes(cid, DCA_DIP_WINDOW_DAYS)
-                if ohlc:
-                    ta["rollingHigh"] = ohlc["high"]
-                    ta["rollingLow"] = ohlc["low"]
-                    ta["rollingHighDaysAgo"] = days_since_ts(ohlc["highTs"])
-                    ta["rollingLowDaysAgo"] = days_since_ts(ohlc["lowTs"])
-                    ta["rollingExtremesSource"] = "ohlc"
+                ext = fetch_range_extremes(cid)
+                # Start from the close-based values, then let any more-extreme, in-window wick replace them.
+                ta["rollingHighSrc"] = ta["rollingLowSrc"] = "closes"
+                w = closes[-YEAR_HIGH_DAYS:]
+                y_hi, y_lo = max(w), min(w)
+                ta["year"] = {"high": y_hi, "highDaysAgo": len(w) - w.index(y_hi), "highSrc": "closes",
+                              "low": y_lo, "lowDaysAgo": len(w) - w.index(y_lo), "lowSrc": "closes"}
+                if ext:
+                    def d_ago(ts, cap):
+                        return min(days_since_ts(ts), cap)
+                    h90, l90, yh, yl = ext["d90High"], ext["d90Low"], ext["yHigh"], ext["yLow"]
+                    if h90 and h90["val"] > ta["rollingHigh"]:
+                        ta["rollingHigh"], ta["rollingHighDaysAgo"], ta["rollingHighSrc"] = h90["val"], d_ago(h90["ts"], DCA_DIP_WINDOW_DAYS), h90["src"]
+                    if l90 and l90["val"] < ta["rollingLow"]:
+                        ta["rollingLow"], ta["rollingLowDaysAgo"], ta["rollingLowSrc"] = l90["val"], d_ago(l90["ts"], DCA_DIP_WINDOW_DAYS), l90["src"]
+                    if yh and yh["val"] > ta["year"]["high"]:
+                        ta["year"].update(high=yh["val"], highDaysAgo=d_ago(yh["ts"], YEAR_HIGH_DAYS), highSrc=yh["src"])
+                    if yl and yl["val"] < ta["year"]["low"]:
+                        ta["year"].update(low=yl["val"], lowDaysAgo=d_ago(yl["ts"], YEAR_HIGH_DAYS), lowSrc=yl["src"])
+                    srcs = [ta["rollingHighSrc"], ta["rollingLowSrc"]]
+                    ta["rollingExtremesSource"] = "ohlc" if "ohlc" in srcs else ("hourly" if "hourly" in srcs else "closes")
                 ta_cache[cid] = ta
                 updated += 1
         time.sleep(1.5)  # rate-limit, matches TA_FETCH_DELAY_MS
+    if stale_feeds:
+        print(f"{stale_feeds} daily histories discarded as stale (ended >3d ago).")
     return updated
 
 # ── Formatting ────────────────────────────────────────────────────
