@@ -61,11 +61,11 @@ TA_ALIGN_BUFFER_MIN = 15  # TA is treated stale once per UTC day, 15 min after 0
 
 # Not every coin's RSI oscillates through the same range — low-volatility coins (often BTC) can
 # bottom at RSI 35-40 and never print sub-30, while high-beta alts blow through 20. "Oversold" is
-# instead defined per coin: the ~15th percentile of its OWN RSI history.
-RSI_OVERSOLD_PERCENTILE = 15
+# instead defined per coin: the ~10th percentile of its OWN RSI history.
+RSI_OVERSOLD_PERCENTILE = 10   # tightened from 15 (matches Portfolio_Tracker.html): capital for adds is limited, so only extreme oversold qualifies
 RSI_OVERSOLD_MIN_SAMPLES = 60
 RSI_OVERSOLD_FLOOR = 20
-RSI_OVERSOLD_CEIL = 45
+RSI_OVERSOLD_CEIL = 35         # tightened from 45 (matches Portfolio_Tracker.html): 45 is near-neutral, not oversold
 
 # Mirrors the oversold logic above for the top side, but deliberately stricter: this is meant to
 # flag only genuinely extreme, blow-off-top conditions worth swing-selling into — not just "a bit
@@ -101,7 +101,7 @@ YEAR_TIER_ABS_FLOOR_PCT = -80
 YEAR_TIER_ABS_CEIL_PCT  = -10
 TA_MAX_DATA_AGE_MS = 3 * 24 * 3600 * 1000  # daily history must end within 3 days of now
 
-TA_SCHEMA_VERSION = 4  # bumped: 90d extremes from hourly data + in-window OHLC wicks, 365d range/tiers, freshness guard
+TA_SCHEMA_VERSION = 5  # bumped: oversold RSI rule tightened to 10th percentile / 35 cap (was 15 / 45) to match the HTML tool; v4 was 90d extremes from hourly data + in-window OHLC wicks, 365d range/tiers, freshness guard
 
 # ── Telegram ──────────────────────────────────────────────────────
 def send_telegram(msg):

@@ -6,7 +6,8 @@ Python port of `Portfolio_Tracker.html`'s signal engine, running on GitHub Actio
 ## What's ported 1:1 from the HTML tool
 - `calcEMASeries` / `calcRSISeries` / `calcReturnPct` / `calcAvgDailyMovePct` / `reconstructStreakDays`
 - `computeTaFromCloses` (RSI-14, EMA-200, per-coin adaptive RSI/near-low/tier thresholds from
-  CoinGecko daily closes)
+  CoinGecko daily closes). "Oversold" is the 10th percentile of a coin's own RSI history, clamped to
+  20–35 (tightened from 15th / 20–45 — keep these two constants in step with `Portfolio_Tracker.html`).
 - **True 90-day high/low**: hourly price history for an exact 90-day window, merged with CoinGecko
   OHLC wick candles that sit fully inside it, with wick dates refined to the matching hour.
   (Daily closes alone miss intraday wicks, and the raw 4-day OHLC candles can straddle the window
@@ -31,10 +32,14 @@ Python port of `Portfolio_Tracker.html`'s signal engine, running on GitHub Actio
   digest of all signals (sent once, in the 03:00–05:00 UTC / ~08:30–10:30 IST window, chosen to
   land after the daily TA refresh).
 - **DCA log**: `state["dca_log"]` exists but nothing writes to it yet — there's no "Log DCA"
-  button equivalent in a headless bot. Until you log a price, the gap gate has nothing to
-  compare against, so it stays open (fires ACCUMULATE every day conditions hold) — same
-  behavior as a fresh browser session with no DCA logged yet. If you want to log a DCA price
-  from Telegram (e.g. a bot command), that needs to be added — say the word and I'll wire it up.
+  button equivalent in a headless bot. The HTML tool's own DCA log lives in your browser's
+  localStorage and is **not** visible to the bot, so a DCA you log in the app does not close the
+  bot's gap gate. Until a price is logged here, the gap gate has nothing to compare against, so it
+  stays open (fires ACCUMULATE every day conditions hold) — same as a fresh browser session with no
+  DCA logged yet. The bot only reads each coin's `price` from its log entry, so the HTML tool's newer
+  format (`{price, dateStr, timestamp, history: [...]}`, where `price` is the newest-dated entry)
+  is compatible if you ever copy one across. If you want to log a DCA price from Telegram (e.g. a
+  bot command) or via a `DCA_LOG` dict like `PORTFOLIO`, that needs to be added.
 
 ## Setup
 1. Push this to your repo (replacing fvg-bot's contents, or in a new repo — your call).
@@ -46,7 +51,7 @@ Python port of `Portfolio_Tracker.html`'s signal engine, running on GitHub Actio
      (there is no built-in fallback key), so without it every CoinGecko call is sent unauthenticated
      and is likely to be rate-limited.
 3. The workflow runs every 2 hours automatically, on every push to `main`, or manually via
-   Actions → Portfolio Tracker Bot → Run workflow. Runs are queued one at a time
+   Actions → Spot Tracker Bot → Run workflow. Runs are queued one at a time
    (`concurrency`), and the bot's own `Update state [skip ci]` commit doesn't re-trigger it.
 
 ## After updating the bot
@@ -55,6 +60,9 @@ Python port of `Portfolio_Tracker.html`'s signal engine, running on GitHub Actio
   Later runs only refresh once per UTC day.
 - Coins whose signal changes under new logic (e.g. WAIT → HOLD from the 365-day gate) send one
   "signal change" Telegram alert on that run. This is expected.
+- The `TA_SCHEMA_VERSION` 4 → 5 bump (oversold rule tightened) triggers this full refetch once. Because the
+  new rule is stricter, a coin may simply stop qualifying for ACCUMULATE; that shows up as a normal
+  "signal change" alert if its signal moves.
 - Don't hand-edit `state.json`; it's rewritten each run. Deleting it forces a clean rebuild but
   resends every signal as a change.
 
