@@ -4066,11 +4066,11 @@
       }
     },
     "nano": {
-      "rsi": 48.29272111241219,
+      "rsi": 39.2362541620531,
       "rsiOversoldThreshold": 35,
       "rsiOverboughtThreshold": 80,
-      "avgDailyMove": 1.6564298182431305,
-      "nearLowThresholdPct": 1.6564298182431305,
+      "avgDailyMove": 1.7988875103625204,
+      "nearLowThresholdPct": 1.7988875103625204,
       "athTiers": {
         "extreme": -51.0,
         "deep": -42.0,
@@ -4082,15 +4082,14 @@
         "deep": -27.0,
         "moderate": -18.0
       },
-      "emaLong": 39.38854490430295,
+      "emaLong": 39.315457871215735,
       "rollingLow": 29.25,
-      "rollingLowDaysAgo": 43,
+      "rollingLowDaysAgo": 44,
       "rollingHigh": 49.09,
-      "rollingHighDaysAgo": 35,
+      "rollingHighDaysAgo": 36,
       "rollingLowWindowDays": 90,
       "rollingExtremesSource": "ohlc",
       "closes": [
-        59.87188907246711,
         57.56341571075821,
         57.520323976556945,
         59.65133070761135,
@@ -4454,27 +4453,28 @@
         31.42733690514723,
         32.04006339297396,
         31.869281151381642,
-        32.37233849311341
+        32.37233849311341,
+        30.660044944912986
       ],
       "schemaVersion": 5,
-      "timestamp": 1793250434065.3926,
-      "closesEndTs": 1793232000000,
+      "timestamp": 1793351740865.1228,
+      "closesEndTs": 1793318400000,
       "rollingHighSrc": "ohlc",
       "rollingLowSrc": "hourly",
       "year": {
         "high": 153.12,
-        "highDaysAgo": 347,
+        "highDaysAgo": 348,
         "highSrc": "ohlc",
         "low": 28.58,
-        "lowDaysAgo": 123,
+        "lowDaysAgo": 124,
         "lowSrc": "ohlc"
       }
     },
     "ethereum": {
-      "rsi": 37.904770313107186,
-      "rsiOversoldThreshold": 31.315521256928847,
+      "rsi": 29.351214053550223,
+      "rsiOversoldThreshold": 31.627418977468253,
       "rsiOverboughtThreshold": 80,
-      "avgDailyMove": 1.1396271905997046,
+      "avgDailyMove": 1.355825401992947,
       "nearLowThresholdPct": 1.5,
       "athTiers": {
         "extreme": -51.0,
@@ -4487,15 +4487,14 @@
         "deep": -27.0,
         "moderate": -18.0
       },
-      "emaLong": 220102.5339555563,
+      "emaLong": 219969.90303324297,
       "rollingLow": 174458.0,
-      "rollingLowDaysAgo": 87,
+      "rollingLowDaysAgo": 88,
       "rollingHigh": 269265.0,
-      "rollingHighDaysAgo": 37,
+      "rollingHighDaysAgo": 39,
       "rollingLowWindowDays": 90,
       "rollingExtremesSource": "hourly",
       "closes": [
-        345923.87490990653,
         337736.8837556713,
         341488.69719204534,
         343869.71872997936,
@@ -4859,27 +4858,28 @@
         220915.8488340005,
         220898.42853645433,
         223413.63445362743,
-        224455.08109811274
+        224455.08109811274,
+        214043.6715166199
       ],
       "schemaVersion": 5,
-      "timestamp": 1793250436978.7104,
-      "closesEndTs": 1793232000000,
+      "timestamp": 1793351743907.89,
+      "closesEndTs": 1793318400000,
       "rollingHighSrc": "hourly",
       "rollingLowSrc": "hourly",
       "year": {
-        "high": 374612.0,
-        "highDaysAgo": 363,
+        "high": 349844.0,
+        "highDaysAgo": 364,
         "highSrc": "ohlc",
         "low": 142759.0,
-        "lowDaysAgo": 123,
+        "lowDaysAgo": 124,
         "lowSrc": "ohlc"
       }
     },
     "bitcoin": {
-      "rsi": 46.974378201918405,
-      "rsiOversoldThreshold": 31.248357537430735,
+      "rsi": 34.79766536521012,
+      "rsiOversoldThreshold": 31.250627528886568,
       "rsiOverboughtThreshold": 80,
-      "avgDailyMove": 0.9035933997896052,
+      "avgDailyMove": 1.0746408683268487,
       "nearLowThresholdPct": 1.5,
       "athTiers": {
         "extreme": -51.0,
@@ -4892,15 +4892,14 @@
         "deep": -27.0,
         "moderate": -18.0
       },
-      "emaLong": 7228934.282615401,
+      "emaLong": 7228508.9327418525,
       "rollingLow": 5937948.0,
-      "rollingLowDaysAgo": 87,
+      "rollingLowDaysAgo": 88,
       "rollingHigh": 8384940.0,
-      "rollingHighDaysAgo": 36,
+      "rollingHighDaysAgo": 37,
       "rollingLowWindowDays": 90,
       "rollingExtremesSource": "hourly",
       "closes": [
-        9752134.76969488,
         9631290.303520985,
         9726061.895275736,
         9772633.859482693,
@@ -5264,19 +5263,20 @@
         7600062.640778234,
         7617781.726190143,
         7690465.6357788965,
-        7738137.225929984
+        7738137.225929984,
+        7406569.478801788
       ],
       "schemaVersion": 5,
-      "timestamp": 1793250439882.3481,
-      "closesEndTs": 1793232000000,
+      "timestamp": 1793351746991.7761,
+      "closesEndTs": 1793318400000,
       "rollingHighSrc": "hourly",
       "rollingLowSrc": "hourly",
       "year": {
-        "high": 10237812.0,
-        "highDaysAgo": 363,
+        "high": 9884475.0,
+        "highDaysAgo": 364,
         "highSrc": "ohlc",
         "low": 5456916.0,
-        "lowDaysAgo": 263,
+        "lowDaysAgo": 264,
         "lowSrc": "ohlc"
       }
     }
