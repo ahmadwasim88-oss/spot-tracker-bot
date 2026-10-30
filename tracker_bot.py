@@ -184,11 +184,12 @@ def percentile_of(sorted_asc, pct):
     idx = int((pct / 100) * (len(sorted_asc) - 1))
     return sorted_asc[idx]
 
-def reconstruct_streak_days(closes, cur, rsi_threshold=None, near_low_threshold_pct=None):
+def reconstruct_streak_days(closes, cur, rsi_threshold=None, near_low_threshold_pct=None, window_days=None):
     if not closes or cur is None:
         return 1
     threshold = rsi_threshold if rsi_threshold is not None else RSI_OVERSOLD
     near_low_pct = near_low_threshold_pct if near_low_threshold_pct is not None else DCA_DIP_NEAR_PCT
+    window_days = window_days or DCA_DIP_WINDOW_DAYS  # the qualified low's window (90 / 180 / 365)
     series = closes + [cur]
     rsi_series = calc_rsi_series(series, RSI_PERIOD)
     streak = 0
@@ -196,7 +197,7 @@ def reconstruct_streak_days(closes, cur, rsi_threshold=None, near_low_threshold_
         rsi = rsi_series[i] if i < len(rsi_series) else None
         if rsi is None:
             break
-        window_start = max(0, i - DCA_DIP_WINDOW_DAYS + 1)
+        window_start = max(0, i - window_days + 1)
         low = min(series[window_start:i + 1])
         above_low = (series[i] - low) / low * 100
         if not (above_low <= near_low_pct and rsi <= threshold):
@@ -471,6 +472,37 @@ def year_high_drawdown(closes, cur, high_24h, low_24h, ath_value, ath_date, atl_
         "rangePos": (cur - low) / (high - low) * 100 if high > low else None,  # 0 = at low, 100 = at high
     }
 
+EXTREME_TOL = 5e-4  # data-source noise allowed before a longer window's extreme counts as "more extreme"
+
+def rsi_at_extreme(series, days_ago, is_live):
+    """RSI on the day an extreme was set. `series` is aligned with closes + [cur]: index len-1-k is the
+    close from k days ago, k = 0 is the live reading."""
+    if not series or days_ago is None:
+        return None
+    n = len(series)
+    if is_live or days_ago <= 0:
+        return series[n - 1]
+    idx = n - 1 - days_ago
+    if idx < 0:
+        return None
+    v = series[idx]
+    return None if v is None or v != v else v
+
+def refine_extreme_day(closes, days_ago, known_price):
+    """Narrow a ±4-day OHLC wick date to the nearest-priced daily close."""
+    if not closes or days_ago is None or known_price is None:
+        return days_ago
+    best_k, best_diff = days_ago, float("inf")
+    lo, hi = max(1, days_ago - 4), min(len(closes), days_ago + 4, DCA_DIP_WINDOW_DAYS)
+    for k in range(lo, hi + 1):
+        c = closes[len(closes) - k]
+        if c is None or c != c:
+            continue
+        d = abs(c - known_price)
+        if d < best_diff:
+            best_diff, best_k = d, k
+    return best_k
+
 def classify_holding(coin_id, md, item, ta, macro_ta, dca_log):
     if md is None:
         return {"signal": "NA", "strength": 0, "reason": "No market data yet.", "cmp": None}
@@ -546,10 +578,12 @@ def classify_holding(coin_id, md, item, ta, macro_ta, dca_log):
     else:
         signal, strength, reason = "HOLD", 25, "No ATH data yet."
 
+    closes_all = (ta or {}).get("closes")
+    window90 = (ta or {}).get("rollingLowWindowDays")
     atl_within_window = False
-    if atl_date and ta and ta.get("rollingLowWindowDays") is not None:
+    if atl_date and ta and window90 is not None:
         ds = days_since(atl_date)
-        atl_within_window = ds is not None and ds <= ta["rollingLowWindowDays"]
+        atl_within_window = ds is not None and ds <= window90
     # Folds in low_24h too, not just `cur` — without it, a coin that wicked below the rolling low
     # intraday and then bounced back before this run would show a 90-day low contradicted by its
     # own 24h range, since the 24h window is always inside the 90-day one.
@@ -562,12 +596,11 @@ def classify_holding(coin_id, md, item, ta, macro_ta, dca_log):
             candidates.append(atl_value)
         effective_low = min(candidates)
 
-    # Mirrored for the high side: fold in the all-time-high when it falls within the rolling
-    # window, and let live price or today's 24h-high reading set a fresh intraday high.
+    # Mirrored for the high side.
     ath_within_window = False
-    if ath_date and ta and ta.get("rollingLowWindowDays") is not None:
+    if ath_date and ta and window90 is not None:
         ds = days_since(ath_date)
-        ath_within_window = ds is not None and ds <= ta["rollingLowWindowDays"]
+        ath_within_window = ds is not None and ds <= window90
     effective_high = None
     if ta and ta.get("rollingHigh") is not None and cur is not None:
         candidates_h = [ta["rollingHigh"], cur]
@@ -577,7 +610,116 @@ def classify_holding(coin_id, md, item, ta, macro_ta, dca_log):
             candidates_h.append(ath_value)
         effective_high = max(candidates_h)
 
+    # ── Extremes + the RSI on their candle: resolved ONCE and reused by every window and gate ──
+    is_live_low = (effective_low is not None and cur is not None
+                   and (effective_low == cur or effective_low == low_24h)
+                   and (ta.get("rollingLow") is None or effective_low < ta["rollingLow"]))
+    atl_sets_low = atl_within_window and atl_value is not None and effective_low == atl_value
+    low_days = 0 if is_live_low else (days_since(atl_date) if atl_sets_low else (ta or {}).get("rollingLowDaysAgo"))
+    low_approx = (not is_live_low) and (not atl_sets_low) and ((ta or {}).get("rollingLowSrc") or (ta or {}).get("rollingExtremesSource")) == "ohlc"
+    low_day_k = refine_extreme_day(closes_all, low_days, effective_low) if low_approx else low_days
+    low_rsi = rsi_at_extreme(live_rsi_series, low_day_k, is_live_low)
+
+    is_live_high = (effective_high is not None and cur is not None
+                    and (effective_high == cur or effective_high == high_24h)
+                    and (ta.get("rollingHigh") is None or effective_high > ta["rollingHigh"]))
+    ath_sets_high = ath_within_window and ath_value is not None and effective_high == ath_value
+    high_days = 0 if is_live_high else (days_since(ath_date) if ath_sets_high else (ta or {}).get("rollingHighDaysAgo"))
+    high_approx = (not is_live_high) and (not ath_sets_high) and ((ta or {}).get("rollingHighSrc") or (ta or {}).get("rollingExtremesSource")) == "ohlc"
+    high_day_k = refine_extreme_day(closes_all, high_days, effective_high) if high_approx else high_days
+    high_rsi = rsi_at_extreme(live_rsi_series, high_day_k, is_live_high)
+
+    live_rsi_now = rsi_at_extreme(live_rsi_series, 0, True)
+
+    def rsi_of(c):
+        if c.get("live"):
+            return live_rsi_now
+        k = c.get("k")
+        if k is None or not closes_all or k > len(closes_all):
+            return None  # older than the data we hold
+        if not c.get("approx"):
+            return rsi_at_extreme(live_rsi_series, k, False)
+        best_k, best_d = None, float("inf")
+        for kk in range(max(1, k - 4), min(len(closes_all), k + 4) + 1):
+            if rsi_at_extreme(live_rsi_series, kk, False) is None:
+                continue  # RSI needs ~14 candles of warm-up
+            d = abs(closes_all[len(closes_all) - kk] - c["v"])
+            if d < best_d:
+                best_d, best_k = d, kk
+        return None if best_k is None else rsi_at_extreme(live_rsi_series, best_k, False)
+
+    def pick_extreme(cands, is_low):
+        best = None
+        for c in cands:
+            if not c or c.get("v") is None or c["v"] != c["v"]:
+                continue
+            if best is None or (c["v"] < best["v"] * (1 - EXTREME_TOL) if is_low else c["v"] > best["v"] * (1 + EXTREME_TOL)):
+                best = c
+        if best is None:
+            return None
+        out = dict(best)
+        if "rsi" not in out:
+            out["rsi"] = rsi_of(best)
+        return out
+
+    eff_low_c = {"v": effective_low, "k": low_day_k, "live": is_live_low, "approx": False, "rsi": low_rsi} if effective_low is not None else None
+    eff_high_c = {"v": effective_high, "k": high_day_k, "live": is_live_high, "approx": False, "rsi": high_rsi} if effective_high is not None else None
+    atl_k = days_since(atl_date) if atl_date else None
+    ath_k = days_since(ath_date) if ath_date else None
+    is_live_atl = atl_value is not None and cur is not None and atl_value == cur and (md_atl is None or cur < md_atl)
+    is_live_ath = ath_value is not None and cur is not None and ath_value == cur and (md_ath is None or cur > md_ath)
+    atl_c = {"v": atl_value, "k": 0 if is_live_atl else atl_k, "live": is_live_atl, "approx": False} if (atl_value is not None and atl_k is not None) else None
+    ath_c = {"v": ath_value, "k": 0 if is_live_ath else ath_k, "live": is_live_ath, "approx": False} if (ath_value is not None and ath_k is not None) else None
+
+    def build_win(n_days):
+        if not closes_all or cur is None:
+            return None
+        w = closes_all[-n_days:]
+        c_lo, c_hi = min(w), max(w)
+        yr_low = {"v": yr["low"], "k": yr["lowDaysAgo"], "live": yr["lowDaysAgo"] == 0, "approx": bool(yr.get("lowApprox"))} \
+            if (yr and yr.get("lowDaysAgo") is not None and yr["lowDaysAgo"] <= n_days) else None
+        yr_high = {"v": yr["high"], "k": yr["highDaysAgo"], "live": yr["highDaysAgo"] == 0, "approx": bool(yr.get("highApprox"))} \
+            if (yr and yr.get("highDaysAgo") is not None and yr["highDaysAgo"] <= n_days) else None
+        return {
+            "n": len(w),
+            "lo": pick_extreme([eff_low_c, yr_low, atl_c if (atl_k is not None and atl_k <= n_days) else None,
+                                {"v": c_lo, "k": len(w) - w.index(c_lo), "live": False, "approx": False}], True),
+            "hi": pick_extreme([eff_high_c, yr_high, ath_c if (ath_k is not None and ath_k <= n_days) else None,
+                                {"v": c_hi, "k": len(w) - w.index(c_hi), "live": False, "approx": False}], False),
+        }
+
+    win180 = build_win(180)
+    win365 = build_win(YEAR_HIGH_DAYS)
+
+    # Gate references: the shortest window (90 -> 180 -> 365) whose extreme was set at an RSI meeting THIS
+    # coin's own oversold/overbought threshold; if none qualifies, the plain 90d extreme.
+    w90 = window90 if window90 is not None else DCA_DIP_WINDOW_DAYS
+    os_thr = (ta or {}).get("rsiOversoldThreshold", RSI_OVERSOLD)
+    ob_thr = (ta or {}).get("rsiOverboughtThreshold", RSI_OVERBOUGHT)
+    low_cands, high_cands = [], []
+    if eff_low_c:
+        low_cands.append({"w": w90, "v": eff_low_c["v"], "rsi": eff_low_c["rsi"]})
+    if eff_high_c:
+        high_cands.append({"w": w90, "v": eff_high_c["v"], "rsi": eff_high_c["rsi"]})
+    if win180 and win180["n"] > w90 + 5:
+        if win180["lo"]:
+            low_cands.append({"w": 180, "v": win180["lo"]["v"], "rsi": win180["lo"]["rsi"]})
+        if win180["hi"]:
+            high_cands.append({"w": 180, "v": win180["hi"]["v"], "rsi": win180["hi"]["rsi"]})
+    if win365:
+        if win365["lo"]:
+            low_cands.append({"w": YEAR_HIGH_DAYS, "v": win365["lo"]["v"], "rsi": win365["lo"]["rsi"]})
+        if win365["hi"]:
+            high_cands.append({"w": YEAR_HIGH_DAYS, "v": win365["hi"]["v"], "rsi": win365["hi"]["rsi"]})
+    q_low = next((c for c in low_cands if c["rsi"] is not None and c["rsi"] <= os_thr), None) or (low_cands[0] if low_cands else None)
+    q_high = next((c for c in high_cands if c["rsi"] is not None and c["rsi"] >= ob_thr), None) or (high_cands[0] if high_cands else None)
+    gate_window = q_low["w"] if q_low else w90
+    gate_low = q_low["v"] if q_low else effective_low
+    gate_high_window = q_high["w"] if q_high else w90
+    gate_high = q_high["v"] if q_high else effective_high
+
     dca_streak_day = None
+    add_reason_shown = False  # True when `reason` below was written by the add pipeline
     if signal == "WAIT":
         rel_bonus, rel_note = 0, ""
         if rel_strength is not None:
@@ -585,47 +727,71 @@ def classify_holding(coin_id, md, item, ta, macro_ta, dca_log):
             rel_note = f" {'Outperforming' if rel_strength > 0 else 'Underperforming'} BTC ({rel_strength:+.1f}pp/{REL_STRENGTH_WINDOW_DAYS}d)."
 
         if ta and ta.get("rollingLow") is not None and cur is not None:
-            above_low = (cur - effective_low) / effective_low * 100
+            add_reason_shown = True
+            above_low = (cur - gate_low) / gate_low * 100
             near_low_threshold_pct = ta.get("nearLowThresholdPct", DCA_DIP_NEAR_PCT)
             near_low = above_low <= near_low_threshold_pct
             rsi_threshold = ta.get("rsiOversoldThreshold", RSI_OVERSOLD)
-            rsi_oversold = live_rsi is not None and live_rsi <= rsi_threshold
+            # Both the live reading AND the last closed daily RSI must be oversold (as in the tracker):
+            # the live RSI includes today's unfinished price, so an intraday spike down alone isn't enough.
+            rsi_live_oversold = live_rsi is not None and live_rsi <= rsi_threshold
+            rsi_closed_oversold = ta.get("rsi") is not None and ta["rsi"] <= rsi_threshold
+            rsi_oversold = rsi_live_oversold and rsi_closed_oversold
             avg_daily_move = ta.get("avgDailyMove")
+            closed_rsi_txt = "—" if ta.get("rsi") is None else f"{ta['rsi']:.0f}"
             if near_low and rsi_oversold:
-                dca_streak_day = reconstruct_streak_days(ta["closes"], cur, rsi_threshold, near_low_threshold_pct)
+                dca_streak_day = reconstruct_streak_days(ta["closes"], cur, rsi_threshold, near_low_threshold_pct, gate_window)
                 last_log = (dca_log or {}).get(coin_id)
                 dyn_gap_pct = max(DCA_GAP_FLOOR_PCT, min(DCA_GAP_CEIL_PCT, (avg_daily_move or DCA_GAP_FLOOR_PCT) * DCA_GAP_MULT))
                 gap_pct = ((last_log["price"] - cur) / last_log["price"] * 100) if last_log else None
                 gap_cleared = last_log is None or gap_pct >= dyn_gap_pct
                 if gap_cleared:
                     signal, strength = "ACCUMULATE", round(min(60, strength + 30) + rel_bonus)
-                    reason = f"{depth:.0f}% below ATH{yr_note}, {above_low:.1f}% above its {ta['rollingLowWindowDays']}-day low (band \u2264{near_low_threshold_pct:.1f}%), RSI {live_rsi:.0f} (oversold vs own \u2264{rsi_threshold:.0f}) — day {dca_streak_day}.{rel_note}"
+                    reason = f"{depth:.0f}% below ATH{yr_note}, {above_low:.1f}% above its {gate_window}-day low (band \u2264{near_low_threshold_pct:.1f}%), RSI {live_rsi:.0f} (oversold vs own \u2264{rsi_threshold:.0f}) — day {dca_streak_day}.{rel_note}"
                 else:
                     reason = f"Meets add conditions (day {dca_streak_day}) but only {gap_pct:.1f}% below last logged DCA — needs \u2265{dyn_gap_pct:.1f}%.{rel_note}"
             else:
-                if near_low and not rsi_oversold:
-                    reason = f"{depth:.0f}% below ATH{yr_note} and near its {ta['rollingLowWindowDays']}-day low, but RSI ({'—' if live_rsi is None else f'{live_rsi:.0f}'}) hasn't reached its own oversold zone (\u2264{rsi_threshold:.0f}) yet."
+                if near_low and rsi_live_oversold and not rsi_closed_oversold:
+                    reason = f"{depth:.0f}% below ATH{yr_note}, near its {gate_window}-day low, live RSI {live_rsi:.0f} is oversold (\u2264{rsi_threshold:.0f}), but the last daily close (RSI {closed_rsi_txt}) hasn't confirmed it yet — waiting for a daily close."
+                elif near_low and not rsi_oversold:
+                    reason = f"{depth:.0f}% below ATH{yr_note} and near its {gate_window}-day low, but RSI ({'—' if live_rsi is None else f'{live_rsi:.0f}'}) hasn't reached its own oversold zone (\u2264{rsi_threshold:.0f}) yet."
                 else:
-                    reason = f"{depth:.0f}% below ATH{yr_note}, but {abs(above_low):.1f}% {'above' if above_low >= 0 else 'below'} its {ta['rollingLowWindowDays']}-day low — outside its own \u2264{near_low_threshold_pct:.1f}% near-low band."
+                    reason = f"{depth:.0f}% below ATH{yr_note}, but {abs(above_low):.1f}% {'above' if above_low >= 0 else 'below'} its {gate_window}-day low — outside its own \u2264{near_low_threshold_pct:.1f}% near-low band."
         else:
             reason = "Not enough price history loaded yet."
 
-    # Interim range-trade signal (ported from the tracker's SWING TRIM): while a coin is just
-    # riding out a WAIT/HOLD stretch (not already ACCUMULATE, the ATH-tier TRIM, or a risk/
-    # liquidity call), a confirmed poke at the top of its own recent range — at a genuinely
-    # extreme RSI, not just "somewhat hot" — is a chance to bank a partial profit and rebuy
-    # lower, independent of whether the actual sell target has been reached.
+    # Which question applies to a WAIT coin — "should I add?" or "should I trim?" — is decided FIRST, from
+    # the plain 90d range: whichever extreme price is nearer to (as % of the current price).
+    d_to_low = (cur - effective_low) / cur if (effective_low is not None and cur) else None
+    d_to_high = (effective_high - cur) / cur if (effective_high is not None and cur) else None
+    lean = "swing" if (d_to_low is not None and d_to_high is not None and d_to_high < d_to_low) else "add"
+
+    # Interim range-trade signal (ported from the tracker's SWING TRIM): while a coin is just riding out a
+    # WAIT/HOLD stretch (not already ACCUMULATE, the ATH-tier TRIM, or a risk/liquidity call), a confirmed
+    # poke at the top of its own recent range — at a genuinely extreme RSI — is a chance to bank a partial
+    # profit and rebuy lower, independent of whether the actual sell target has been reached.
     if effective_high is not None and cur is not None and signal not in ("EXIT", "AT RISK", "ACCUMULATE", "TRIM"):
-        below_high_pct = (effective_high - cur) / effective_high * 100
+        swing_high = gate_high if gate_high is not None else effective_high
+        below_high_pct = (swing_high - cur) / swing_high * 100
         near_high_threshold_pct = (ta or {}).get("nearLowThresholdPct", DCA_DIP_NEAR_PCT)
         near_high = below_high_pct <= near_high_threshold_pct
         rsi_overbought_threshold = (ta or {}).get("rsiOverboughtThreshold", RSI_OVERBOUGHT)
         rsi_overbought = live_rsi is not None and live_rsi >= rsi_overbought_threshold
-        window_label = (ta or {}).get("rollingLowWindowDays", DCA_DIP_WINDOW_DAYS)
+        window_label = gate_high_window
+        rsi_txt = "—" if live_rsi is None else f"{live_rsi:.0f}"
         if near_high and rsi_overbought:
             signal, strength = "SWING TRIM", max(strength, 50)
             target_note = f" Still short of target (\u20b9{target:,.2f}), so this is a partial-profit/rebuy-lower play, not an exit." if target else ""
             reason = f"{below_high_pct:.1f}% below its {window_label}-day high (band \u2264{near_high_threshold_pct:.1f}%), RSI {live_rsi:.0f} (overbought vs own \u2265{rsi_overbought_threshold:.0f}) — reasonable spot to trim into strength.{target_note}"
+        elif lean == "swing" and add_reason_shown and signal == "WAIT":
+            # Nearer its range top than its range low: explain the trim question, not the add one.
+            lead = f"{below_high_pct:.1f}% below its {window_label}-day high"
+            if near_high:
+                reason = f"{lead} (within its own \u2264{near_high_threshold_pct:.1f}% band), but RSI ({rsi_txt}) hasn't reached its own overbought zone (\u2265{rsi_overbought_threshold:.0f}) yet."
+            else:
+                reason = f"{lead} — outside its own \u2264{near_high_threshold_pct:.1f}% near-high band, and RSI ({rsi_txt}) is below its own overbought zone (\u2265{rsi_overbought_threshold:.0f})."
+        elif near_high:
+            reason = f"{reason} Also {below_high_pct:.1f}% below its {window_label}-day high, but RSI ({rsi_txt}) hasn't reached its own overbought zone (\u2265{rsi_overbought_threshold:.0f}) yet."
 
     if target and cur is not None and cur >= target * (1 - TARGET_PROXIMITY_PCT / 100) and signal not in ("EXIT", "AT RISK"):
         signal, strength = "TRIM", 55
@@ -638,6 +804,8 @@ def classify_holding(coin_id, md, item, ta, macro_ta, dca_log):
         "rsiOversoldThreshold": (ta or {}).get("rsiOversoldThreshold", RSI_OVERSOLD),
         "rsiOverboughtThreshold": (ta or {}).get("rsiOverboughtThreshold", RSI_OVERBOUGHT),
         "nearLowThresholdPct": (ta or {}).get("nearLowThresholdPct", DCA_DIP_NEAR_PCT),
+        "lean": lean, "gateLow": gate_low, "gateLowWindow": gate_window,
+        "gateHigh": gate_high, "gateHighWindow": gate_high_window,
         "high365": yr["high"] if yr else None, "low365": yr["low"] if yr else None,
         "drawdown365": yr["pct"] if yr else None, "range365Pos": yr["rangePos"] if yr else None,
     }

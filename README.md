@@ -20,6 +20,16 @@ Python port of `Portfolio_Tracker.html`'s signal engine, running on GitHub Actio
 - `classifyHolding` — the full EXIT / AT RISK / WAIT / HOLD / TRIM / ACCUMULATE decision tree,
   including the DCA gap gate, relative-strength-vs-BTC conviction nudge, and target-proximity
   TRIM override.
+- **RSI-qualified reference low/high (add + swing-trim gates)**: a 90-day low only counts as "support" if RSI on
+  the day it was set met *this coin's own* oversold threshold (no tolerance); otherwise the gate widens to the
+  180-day, then the 365-day low (and the mirror for highs vs the overbought threshold). If no window qualifies it
+  falls back to the plain 90-day extreme. Each window's low/high and its RSI are resolved once and reused, so
+  the same candle can't carry two different RSI values. The reason text names the window used (e.g. "180-day low").
+- **Add vs trim decided first**: a WAIT coin is judged on the question its plain 90-day range points to —
+  whichever extreme price is nearer (as % of current price). A coin nearer its range top gets a trim-oriented
+  reason, not an add-oriented one.
+- **Live AND last-closed RSI** must both be oversold for ACCUMULATE (as in the HTML tool). Earlier versions of the
+  bot only checked the live RSI, so it could alert on an intraday dip the tracker would still call WAIT.
 - The once-daily TA refresh boundary (aligned to 00:00 UTC + 15 min, same as the HTML tool).
 - **Data-freshness guard**: a daily price history that ends more than 3 days ago is discarded
   (logged in the Action output) instead of being used, and a cached entry with such a history is
@@ -63,6 +73,9 @@ Python port of `Portfolio_Tracker.html`'s signal engine, running on GitHub Actio
 - The `TA_SCHEMA_VERSION` 4 → 5 bump (oversold rule tightened) triggers this full refetch once. Because the
   new rule is stricter, a coin may simply stop qualifying for ACCUMULATE; that shows up as a normal
   "signal change" alert if its signal moves.
+- The qualified-extreme logic runs at classification time from data already in `state.json`, so there is **no
+  `TA_SCHEMA_VERSION` bump and no refetch** for this update. Expect some "signal change" alerts on the first run
+  (coins whose gate window moved, and coins that no longer pass the closed-RSI check).
 - Don't hand-edit `state.json`; it's rewritten each run. Deleting it forces a clean rebuild but
   resends every signal as a change.
 
