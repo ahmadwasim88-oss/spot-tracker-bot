@@ -407,7 +407,7 @@
         305.8919958220406
       ],
       "schemaVersion": 5,
-      "timestamp": 1793336778800.8958,
+      "timestamp": 1793356948876.1829,
       "closesEndTs": 1793318400000,
       "rollingHighSrc": "ohlc",
       "rollingLowSrc": "hourly",
@@ -439,7 +439,7 @@
       },
       "emaLong": 6.140842623060827,
       "rollingLow": 3.79,
-      "rollingLowDaysAgo": 84,
+      "rollingLowDaysAgo": 85,
       "rollingHigh": 7.85,
       "rollingHighDaysAgo": 44,
       "rollingLowWindowDays": 90,
@@ -812,7 +812,7 @@
         6.456382594593761
       ],
       "schemaVersion": 5,
-      "timestamp": 1793336782030.6755,
+      "timestamp": 1793356952072.514,
       "closesEndTs": 1793318400000,
       "rollingHighSrc": "ohlc",
       "rollingLowSrc": "hourly",
@@ -1217,7 +1217,7 @@
         83.02825865599722
       ],
       "schemaVersion": 5,
-      "timestamp": 1793336785224.5474,
+      "timestamp": 1793356955177.9482,
       "closesEndTs": 1793318400000,
       "rollingHighSrc": "hourly",
       "rollingLowSrc": "hourly",
@@ -1622,7 +1622,7 @@
         86.43124271180756
       ],
       "schemaVersion": 5,
-      "timestamp": 1793336788739.4111,
+      "timestamp": 1793356958219.0044,
       "closesEndTs": 1793318400000,
       "rollingHighSrc": "hourly",
       "rollingLowSrc": "hourly",
@@ -2027,7 +2027,7 @@
         0.7855332774086626
       ],
       "schemaVersion": 5,
-      "timestamp": 1793336792000.7236,
+      "timestamp": 1793356961264.1172,
       "closesEndTs": 1793318400000,
       "rollingHighSrc": "ohlc",
       "rollingLowSrc": "hourly",
@@ -2058,7 +2058,7 @@
         "moderate": -20.319373683674122
       },
       "emaLong": 9.125803828135929,
-      "rollingLow": 6.817900074487834,
+      "rollingLow": 6.833677392799991,
       "rollingLowDaysAgo": 90,
       "rollingHigh": 12.24,
       "rollingHighDaysAgo": 64,
@@ -2432,7 +2432,7 @@
         8.322852688184202
       ],
       "schemaVersion": 5,
-      "timestamp": 1793336795231.81,
+      "timestamp": 1793356964313.4373,
       "closesEndTs": 1793318400000,
       "rollingHighSrc": "ohlc",
       "rollingLowSrc": "hourly",
@@ -2837,7 +2837,7 @@
         1.9354938853693795
       ],
       "schemaVersion": 5,
-      "timestamp": 1793336798525.869,
+      "timestamp": 1793356967292.6987,
       "closesEndTs": 1793318400000,
       "rollingHighSrc": "ohlc",
       "rollingLowSrc": "hourly",
@@ -2869,7 +2869,7 @@
       },
       "emaLong": 846.2427207167742,
       "rollingLow": 581.5294567141643,
-      "rollingLowDaysAgo": 89,
+      "rollingLowDaysAgo": 90,
       "rollingHigh": 1150.32,
       "rollingHighDaysAgo": 31,
       "rollingLowWindowDays": 90,
@@ -3242,7 +3242,7 @@
         786.4811423481948
       ],
       "schemaVersion": 5,
-      "timestamp": 1793336801822.2478,
+      "timestamp": 1793356970391.6147,
       "closesEndTs": 1793318400000,
       "rollingHighSrc": "hourly",
       "rollingLowSrc": "hourly",
@@ -3276,7 +3276,7 @@
       "rollingLow": 7.303774578044396,
       "rollingLowDaysAgo": 0,
       "rollingHigh": 10.42,
-      "rollingHighDaysAgo": 24,
+      "rollingHighDaysAgo": 25,
       "rollingLowWindowDays": 90,
       "rollingExtremesSource": "hourly",
       "closes": [
@@ -3647,7 +3647,7 @@
         7.977245718569583
       ],
       "schemaVersion": 5,
-      "timestamp": 1793336805095.722,
+      "timestamp": 1793356973451.42,
       "closesEndTs": 1793318400000,
       "rollingHighSrc": "hourly",
       "rollingLowSrc": "hourly",
@@ -4052,7 +4052,7 @@
         229.20150734214005
       ],
       "schemaVersion": 5,
-      "timestamp": 1793336808334.3875,
+      "timestamp": 1793356976537.7297,
       "closesEndTs": 1793318400000,
       "rollingHighSrc": "ohlc",
       "rollingLowSrc": "closes",
@@ -4862,7 +4862,7 @@
         214043.6715166199
       ],
       "schemaVersion": 5,
-      "timestamp": 1793356819529.591,
+      "timestamp": 1793356981040.1467,
       "closesEndTs": 1793318400000,
       "rollingHighSrc": "hourly",
       "rollingLowSrc": "hourly",
@@ -5267,7 +5267,7 @@
         7406569.478801788
       ],
       "schemaVersion": 5,
-      "timestamp": 1793356822517.6555,
+      "timestamp": 1793356983910.0198,
       "closesEndTs": 1793318400000,
       "rollingHighSrc": "hourly",
       "rollingLowSrc": "hourly",
