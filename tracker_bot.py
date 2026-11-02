@@ -101,7 +101,7 @@ YEAR_TIER_ABS_FLOOR_PCT = -80
 YEAR_TIER_ABS_CEIL_PCT  = -10
 TA_MAX_DATA_AGE_MS = 3 * 24 * 3600 * 1000  # daily history must end within 3 days of now
 
-TA_SCHEMA_VERSION = 5  # bumped: oversold RSI rule tightened to 10th percentile / 35 cap (was 15 / 45) to match the HTML tool; v4 was 90d extremes from hourly data + in-window OHLC wicks, 365d range/tiers, freshness guard
+TA_SCHEMA_VERSION = 6  # bumped: gate window fallback = closest-to-qualifying window (was always 90d); v5: oversold RSI rule tightened to 10th percentile / 35 cap (was 15 / 45) to match the HTML tool; v4 was 90d extremes from hourly data + in-window OHLC wicks, 365d range/tiers, freshness guard
 
 # ── Telegram ──────────────────────────────────────────────────────
 def send_telegram(msg):
@@ -692,7 +692,8 @@ def classify_holding(coin_id, md, item, ta, macro_ta, dca_log):
     win365 = build_win(YEAR_HIGH_DAYS)
 
     # Gate references: the shortest window (90 -> 180 -> 365) whose extreme was set at an RSI meeting THIS
-    # coin's own oversold/overbought threshold; if none qualifies, the plain 90d extreme.
+    # coin's own oversold/overbought threshold; if none qualifies, the window whose extreme came closest to
+    # qualifying (lowest RSI on a low / highest on a high, ties to the shorter window).
     w90 = window90 if window90 is not None else DCA_DIP_WINDOW_DAYS
     os_thr = (ta or {}).get("rsiOversoldThreshold", RSI_OVERSOLD)
     ob_thr = (ta or {}).get("rsiOverboughtThreshold", RSI_OVERBOUGHT)
@@ -711,8 +712,20 @@ def classify_holding(coin_id, md, item, ta, macro_ta, dca_log):
             low_cands.append({"w": YEAR_HIGH_DAYS, "v": win365["lo"]["v"], "rsi": win365["lo"]["rsi"]})
         if win365["hi"]:
             high_cands.append({"w": YEAR_HIGH_DAYS, "v": win365["hi"]["v"], "rsi": win365["hi"]["rsi"]})
-    q_low = next((c for c in low_cands if c["rsi"] is not None and c["rsi"] <= os_thr), None) or (low_cands[0] if low_cands else None)
-    q_high = next((c for c in high_cands if c["rsi"] is not None and c["rsi"] >= ob_thr), None) or (high_cands[0] if high_cands else None)
+    def pick_ref_window(cands, thr, is_low):
+        # Shortest window whose extreme was set at a qualifying RSI; otherwise the closest to qualifying
+        # (never loosens the threshold); if no candidate has an RSI, the first one.
+        valid = [c for c in cands if c["rsi"] is not None]
+        hit = next((c for c in valid if (c["rsi"] <= thr if is_low else c["rsi"] >= thr)), None)
+        if hit:
+            return hit
+        best = None
+        for c in valid:
+            if best is None or (c["rsi"] < best["rsi"] if is_low else c["rsi"] > best["rsi"]):
+                best = c
+        return best or (cands[0] if cands else None)
+    q_low = pick_ref_window(low_cands, os_thr, True)
+    q_high = pick_ref_window(high_cands, ob_thr, False)
     gate_window = q_low["w"] if q_low else w90
     gate_low = q_low["v"] if q_low else effective_low
     gate_high_window = q_high["w"] if q_high else w90
