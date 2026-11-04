@@ -2,7 +2,7 @@
   "signals": {
     "elrond-erd-2": "WAIT",
     "kava": "WAIT",
-    "axie-infinity": "WAIT",
+    "axie-infinity": "ACCUMULATE",
     "polkadot": "WAIT",
     "theta-fuel": "WAIT",
     "polygon-ecosystem-token": "WAIT",
@@ -1636,31 +1636,30 @@
       }
     },
     "theta-fuel": {
-      "rsi": 31.16306129348581,
-      "rsiOversoldThreshold": 32.79151066243773,
+      "rsi": 31.657100990880863,
+      "rsiOversoldThreshold": 32.75269136532572,
       "rsiOverboughtThreshold": 80,
-      "avgDailyMove": 2.025991528808141,
-      "nearLowThresholdPct": 2.025991528808141,
+      "avgDailyMove": 1.8540865046058546,
+      "nearLowThresholdPct": 1.8540865046058546,
       "athTiers": {
-        "extreme": -57.40309331623066,
-        "deep": -47.27313567218996,
-        "moderate": -27.013220384108546,
-        "watch": -13.506610192054273
+        "extreme": -52.532450963832545,
+        "deep": -43.26201844080327,
+        "moderate": -24.721153394744725,
+        "watch": -12.360576697372363
       },
       "yearTiers": {
-        "extreme": -40.51983057616282,
-        "deep": -30.389872932122117,
-        "moderate": -20.25991528808141
+        "extreme": -37.08173009211709,
+        "deep": -27.811297569087817,
+        "moderate": -18.540865046058546
       },
-      "emaLong": 0.9782294618703055,
+      "emaLong": 0.9760861356774515,
       "rollingLow": 0.67408,
-      "rollingLowDaysAgo": 81,
+      "rollingLowDaysAgo": 82,
       "rollingHigh": 1.32,
-      "rollingHighDaysAgo": 52,
+      "rollingHighDaysAgo": 53,
       "rollingLowWindowDays": 90,
       "rollingExtremesSource": "ohlc",
       "closes": [
-        1.9133934854742245,
         1.8398753598014528,
         1.9124374634385626,
         1.8707808933307875,
@@ -2024,19 +2023,20 @@
         0.7709838361437512,
         0.7663463749762032,
         0.7743883165209928,
-        0.7542250146981464
+        0.7542250146981464,
+        0.7559562422607229
       ],
       "schemaVersion": 6,
-      "timestamp": 1793676181932.7812,
-      "closesEndTs": 1793664000000,
+      "timestamp": 1793763392506.9536,
+      "closesEndTs": 1793750400000,
       "rollingHighSrc": "ohlc",
       "rollingLowSrc": "hourly",
       "year": {
         "high": 2.55,
-        "highDaysAgo": 352,
+        "highDaysAgo": 353,
         "highSrc": "ohlc",
         "low": 0.67408,
-        "lowDaysAgo": 81,
+        "lowDaysAgo": 82,
         "lowSrc": "hourly"
       }
     },
@@ -5282,6 +5282,6 @@
     }
   },
   "ta_timestamp": 0,
-  "last_daily": "2026-11-03",
+  "last_daily": "2026-11-04",
   "dca_log": {}
 }
