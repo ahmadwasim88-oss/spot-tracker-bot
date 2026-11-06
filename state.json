@@ -4876,10 +4876,10 @@
       }
     },
     "bitcoin": {
-      "rsi": 48.835653227588416,
-      "rsiOversoldThreshold": 32.56137221548845,
+      "rsi": 36.96143166526063,
+      "rsiOversoldThreshold": 32.80883662564679,
       "rsiOverboughtThreshold": 80,
-      "avgDailyMove": 1.136900423879926,
+      "avgDailyMove": 1.4004711032696044,
       "nearLowThresholdPct": 1.5,
       "athTiers": {
         "extreme": -51.0,
@@ -4892,15 +4892,14 @@
         "deep": -27.0,
         "moderate": -18.0
       },
-      "emaLong": 7226050.031564522,
+      "emaLong": 7223877.571874949,
       "rollingLow": 5964978.0,
-      "rollingLowDaysAgo": 83,
+      "rollingLowDaysAgo": 84,
       "rollingHigh": 8384940.0,
-      "rollingHighDaysAgo": 43,
+      "rollingHighDaysAgo": 44,
       "rollingLowWindowDays": 90,
       "rollingExtremesSource": "hourly",
       "closes": [
-        9211282.648819847,
         8978400.455900718,
         9149534.407081429,
         9068778.157675695,
@@ -5264,11 +5263,12 @@
         7431438.169595118,
         7266348.282233215,
         7332085.386088575,
-        7603095.226350467
+        7603095.226350467,
+        7179400.589290735
       ],
       "schemaVersion": 6,
-      "timestamp": 1793888856018.8577,
-      "closesEndTs": 1793836800000,
+      "timestamp": 1793966176990.2288,
+      "closesEndTs": 1793923200000,
       "rollingHighSrc": "hourly",
       "rollingLowSrc": "hourly",
       "year": {
