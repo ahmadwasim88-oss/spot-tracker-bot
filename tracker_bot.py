@@ -2,6 +2,7 @@ import requests
 import json
 import os
 import time
+import math
 from datetime import datetime, timezone
 
 # ── Config ────────────────────────────────────────────────────────
@@ -38,9 +39,9 @@ DCA_WATCH_PCT     = -20
 DCA_DIP_WINDOW_DAYS = 90
 DCA_DIP_NEAR_PCT    = 3  # fallback only, used before a coin has enough TA history — see nearLowThresholdPct
 DCA_VOL_LOOKBACK_DAYS = 20
-DCA_GAP_MULT      = 3.0
-DCA_GAP_FLOOR_PCT = 5
-DCA_GAP_CEIL_PCT  = 12
+DCA_GAP_MULT      = 4.0
+DCA_GAP_FLOOR_PCT = 10
+DCA_GAP_CEIL_PCT  = 20
 REL_STRENGTH_WINDOW_DAYS = 14
 REL_STRENGTH_SCALE     = 3
 REL_STRENGTH_MIN_BONUS = -10
@@ -124,6 +125,44 @@ def load_state():
 def save_state(s):
     with open(STATE_FILE, "w") as f:
         json.dump(s, f, indent=2)
+
+def get_dca_gap_status(current_price, last_log, avg_daily_move):
+    try:
+        move = float(avg_daily_move)
+    except (TypeError, ValueError, OverflowError):
+        move = DCA_GAP_FLOOR_PCT
+    if not math.isfinite(move) or move <= 0:
+        move = DCA_GAP_FLOOR_PCT
+    required_gap_pct = max(DCA_GAP_FLOOR_PCT, min(DCA_GAP_CEIL_PCT, move * DCA_GAP_MULT))
+
+    has_last_dca = last_log is not None
+    try:
+        last_dca_price = float(last_log.get("price")) if has_last_dca and isinstance(last_log, dict) else None
+    except (TypeError, ValueError, OverflowError):
+        last_dca_price = None
+    valid_reference = last_dca_price is not None and math.isfinite(last_dca_price) and last_dca_price > 0
+
+    try:
+        current = float(current_price)
+    except (TypeError, ValueError, OverflowError):
+        current = None
+    valid_current = current is not None and math.isfinite(current) and current > 0
+
+    gap_pct = (
+        (last_dca_price - current) / last_dca_price * 100
+        if has_last_dca and valid_reference and valid_current
+        else None
+    )
+    cleared = not has_last_dca or (gap_pct is not None and gap_pct >= required_gap_pct)
+    next_dca_price = last_dca_price * (1 - required_gap_pct / 100) if valid_reference else None
+
+    return {
+        "requiredGapPct": required_gap_pct,
+        "gapPct": gap_pct,
+        "cleared": cleared,
+        "nextDcaPrice": next_dca_price,
+        "lastDcaPrice": last_dca_price if valid_reference else None,
+    }
 
 # ── Indicators (ported 1:1 from calcEMASeries/calcRSISeries/etc.) ──
 def calc_ema_series(values, period):
@@ -732,7 +771,10 @@ def classify_holding(coin_id, md, item, ta, macro_ta, dca_log):
     gate_high = q_high["v"] if q_high else effective_high
 
     dca_streak_day = None
-    add_reason_shown = False  # True when `reason` below was written by the add pipeline
+    add_reason_shown = False
+    dca_gap_pct = None
+    dca_required_gap_pct = None
+    next_dca_price = None
     if signal == "WAIT":
         rel_bonus, rel_note = 0, ""
         if rel_strength is not None:
@@ -755,14 +797,28 @@ def classify_holding(coin_id, md, item, ta, macro_ta, dca_log):
             if near_low and rsi_oversold:
                 dca_streak_day = reconstruct_streak_days(ta["closes"], cur, rsi_threshold, near_low_threshold_pct, gate_window)
                 last_log = (dca_log or {}).get(coin_id)
-                dyn_gap_pct = max(DCA_GAP_FLOOR_PCT, min(DCA_GAP_CEIL_PCT, (avg_daily_move or DCA_GAP_FLOOR_PCT) * DCA_GAP_MULT))
-                gap_pct = ((last_log["price"] - cur) / last_log["price"] * 100) if last_log else None
-                gap_cleared = last_log is None or gap_pct >= dyn_gap_pct
-                if gap_cleared:
+                gap_status = get_dca_gap_status(cur, last_log, avg_daily_move)
+                dyn_gap_pct = gap_status["requiredGapPct"]
+                gap_pct = gap_status["gapPct"]
+                dca_gap_pct = gap_pct
+                dca_required_gap_pct = dyn_gap_pct
+                next_dca_price = gap_status["nextDcaPrice"]
+                if gap_status["cleared"]:
                     signal, strength = "ACCUMULATE", round(min(60, strength + 30) + rel_bonus)
-                    reason = f"{depth:.0f}% below ATH{yr_note}, {above_low:.1f}% above its {gate_window}-day low (band \u2264{near_low_threshold_pct:.1f}%), RSI {live_rsi:.0f} (oversold vs own \u2264{rsi_threshold:.0f}) — day {dca_streak_day}.{rel_note}"
+                    gap_note = ""
+                    if last_log is not None and gap_pct is not None:
+                        gap_note = f" Also {gap_pct:.1f}% below last DCA ({fmt_inr(gap_status['lastDcaPrice'])}) — a real step down."
+                    reason = f"{depth:.0f}% below ATH{yr_note}, {above_low:.1f}% above its {gate_window}-day low (band \u2264{near_low_threshold_pct:.1f}%), RSI {live_rsi:.0f} (oversold vs own \u2264{rsi_threshold:.0f}) — day {dca_streak_day}.{gap_note}{rel_note}"
+                elif gap_pct is None:
+                    reason = f"Meets add conditions (day {dca_streak_day}), but the stored previous DCA price is invalid, so the required {dyn_gap_pct:.1f}% gap cannot be verified. Held at WAIT.{rel_note}"
                 else:
-                    reason = f"Meets add conditions (day {dca_streak_day}) but only {gap_pct:.1f}% below last logged DCA — needs \u2265{dyn_gap_pct:.1f}%.{rel_note}"
+                    last_price = gap_status["lastDcaPrice"]
+                    next_price = gap_status["nextDcaPrice"]
+                    if gap_pct >= 0:
+                        position_note = f"only {gap_pct:.1f}% below last logged DCA ({fmt_inr(last_price)})"
+                    else:
+                        position_note = f"{abs(gap_pct):.1f}% above last logged DCA ({fmt_inr(last_price)}), not below it"
+                    reason = f"Meets add conditions (day {dca_streak_day}), but {position_note}. Needs ≥{dyn_gap_pct:.1f}% below that — next DCA near {fmt_inr(next_price)}. Held at WAIT.{rel_note}"
             else:
                 if near_low and rsi_live_oversold and not rsi_closed_oversold:
                     reason = f"{depth:.0f}% below ATH{yr_note}, near its {gate_window}-day low, live RSI {live_rsi:.0f} is oversold (\u2264{rsi_threshold:.0f}), but the last daily close (RSI {closed_rsi_txt}) hasn't confirmed it yet — waiting for a daily close."
@@ -814,6 +870,9 @@ def classify_holding(coin_id, md, item, ta, macro_ta, dca_log):
         "signal": signal, "strength": strength, "reason": reason, "cmp": cur,
         "athPct": ath_pct, "rsi": live_rsi, "sentiment": sentiment,
         "relStrengthVsBtc": rel_strength, "dcaStreakDay": dca_streak_day,
+        "dcaGapPct": dca_gap_pct,
+        "dcaRequiredGapPct": dca_required_gap_pct,
+        "nextDcaPrice": next_dca_price,
         "rsiOversoldThreshold": (ta or {}).get("rsiOversoldThreshold", RSI_OVERSOLD),
         "rsiOverboughtThreshold": (ta or {}).get("rsiOverboughtThreshold", RSI_OVERBOUGHT),
         "nearLowThresholdPct": (ta or {}).get("nearLowThresholdPct", DCA_DIP_NEAR_PCT),
