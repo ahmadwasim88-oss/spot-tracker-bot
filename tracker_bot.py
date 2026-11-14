@@ -24,7 +24,7 @@ PORTFOLIO = {
     "polygon-ecosystem-token": {"symbol": "POL",   "target": 98.5},
     "the-graph":               {"symbol": "GRT",   "target": 12.11},
     "avalanche-2":             {"symbol": "AVAX",  "target": 6612.02},
-    "1inch":                   {"symbol": "1INCH", "target": 72.20},
+    "1inch":                   {"symbol": "1INCH", "target": 64.6},
     "internet-computer":       {"symbol": "ICP",   "target": 1765.6},
     "nano":                    {"symbol": "XNO",   "target": 247.4},
     "ethereum":                {"symbol": "ETH",   "target": 431946},
