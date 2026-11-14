@@ -4,14 +4,14 @@
     "kava": "WAIT",
     "axie-infinity": "ACCUMULATE",
     "polkadot": "WAIT",
-    "theta-fuel": "WAIT",
+    "theta-fuel": "ACCUMULATE",
     "polygon-ecosystem-token": "WAIT",
     "the-graph": "WAIT",
     "avalanche-2": "WAIT",
     "1inch": "ACCUMULATE",
     "internet-computer": "WAIT",
     "nano": "WAIT",
-    "ethereum": "WAIT",
+    "ethereum": "ACCUMULATE",
     "bitcoin": "WAIT"
   },
   "ta_cache": {
