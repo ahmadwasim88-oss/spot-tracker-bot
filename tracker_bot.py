@@ -18,7 +18,7 @@ STATE_FILE = "state.json"
 PORTFOLIO = {
     "elrond-erd-2":            {"symbol": "EGLD",  "target": 7497.09},
     "kava":                    {"symbol": "KAVA",  "target": 93.11},
-    "axie-infinity":           {"symbol": "AXS",   "target": 1468.84},
+    "axie-infinity":           {"symbol": "AXS",   "target": 1295.67},
     "polkadot":                {"symbol": "DOT",   "target": 1379.78},
     "theta-fuel":              {"symbol": "TFUEL", "target": 9.99},
     "polygon-ecosystem-token": {"symbol": "POL",   "target": 98.5},
