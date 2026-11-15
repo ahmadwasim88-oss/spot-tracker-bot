@@ -20,7 +20,7 @@ PORTFOLIO = {
     "kava":                    {"symbol": "KAVA",  "target": 93.11},
     "axie-infinity":           {"symbol": "AXS",   "target": 1295.67},
     "polkadot":                {"symbol": "DOT",   "target": 1379.78},
-    "theta-fuel":              {"symbol": "TFUEL", "target": 9.99},
+    "theta-fuel":              {"symbol": "TFUEL", "target": 8.95},
     "polygon-ecosystem-token": {"symbol": "POL",   "target": 98.5},
     "the-graph":               {"symbol": "GRT",   "target": 12.11},
     "avalanche-2":             {"symbol": "AVAX",  "target": 6612.02},
