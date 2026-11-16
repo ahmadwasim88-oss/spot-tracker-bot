@@ -472,6 +472,7 @@ def _get_json(url, params):
         return None
 
 def fetch_range_extremes(coin_id):
+    global _LAST_HTTP_ERR
     DAY = 86400000
     BUCKET = 4 * DAY
     now = time.time() * 1000
