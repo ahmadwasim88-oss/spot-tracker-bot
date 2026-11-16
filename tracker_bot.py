@@ -13,8 +13,6 @@ API_BASE = "https://api.coingecko.com/api/v3"
 API_KEY = os.environ.get("COINGECKO_API_KEY", "")
 
 STATE_FILE = "state.json"
-# Coin list + INR targets, ported from the tracker's saved portfolio.
-# Edit this dict directly on GitHub to add/remove coins or change targets.
 PORTFOLIO = {
     "elrond-erd-2":            {"symbol": "EGLD",  "target": 7497.09},
     "kava":                    {"symbol": "KAVA",  "target": 93.11},
@@ -30,7 +28,7 @@ PORTFOLIO = {
     "ethereum":                {"symbol": "ETH",   "target": 431946},
     "bitcoin":                 {"symbol": "BTC",   "target": 11187013},
 }
-MACRO_ID = "bitcoin"  # used for relative-strength-vs-BTC; always fetched even if not held
+MACRO_ID = "bitcoin"
 
 # ── Signal-engine constants (1:1 with Portfolio_Tracker.html) ─────
 DCA_EXTREME_PCT   = -85
@@ -38,14 +36,14 @@ DCA_DEEP_PCT      = -70
 DCA_MODERATE_PCT  = -40
 DCA_WATCH_PCT     = -20
 DCA_DIP_WINDOW_DAYS = 90
-DCA_DIP_NEAR_PCT    = 3  # fallback only, used before a coin has enough TA history
+DCA_DIP_NEAR_PCT    = 3
 DCA_VOL_LOOKBACK_DAYS = 20
 DCA_GAP_VOL_LOOKBACK_DAYS = 90
 DCA_STEP_CHAIN_MAX_DAYS = 180
 DCA_GAP_TIERS = [
-    {"floor": 15, "ceil": 20, "mult": 5.5},  # Buy #2 (after 1st DCA): 15%–20%
-    {"floor": 22, "ceil": 27, "mult": 7.5},  # Buy #3 (after 2nd DCA): 22%–27%
-    {"floor": 28, "ceil": 35, "mult": 9.5},  # Buy #4+ (after 3rd+ DCA): 28%–35%
+    {"floor": 15, "ceil": 20, "mult": 5.5},
+    {"floor": 22, "ceil": 27, "mult": 7.5},
+    {"floor": 28, "ceil": 35, "mult": 9.5},
 ]
 REL_STRENGTH_WINDOW_DAYS = 14
 REL_STRENGTH_SCALE     = 3
@@ -55,15 +53,15 @@ EMA_TREND_FAST_SHORT = 20
 EMA_TREND_FAST_LONG  = 50
 EMA_TREND_LONG = 200
 RSI_PERIOD    = 14
-RSI_OVERSOLD  = 30   # fallback only
-RSI_OVERBOUGHT = 85  # fallback only
+RSI_OVERSOLD  = 30
+RSI_OVERBOUGHT = 85
 TARGET_PROXIMITY_PCT = 3
 LIQUIDITY_DEAD_RATIO = 0.0005
 ABSOLUTE_DEAD_VOLUME = 100000
 MICROCAP_FLOOR = 2000000
 RANK_CAUTION   = 500
 TA_HISTORY_DAYS = 365
-TA_ALIGN_BUFFER_MIN = 15  # TA is treated stale once per UTC day, 15 min after 00:00 UTC
+TA_ALIGN_BUFFER_MIN = 15
 
 RSI_OVERSOLD_PERCENTILE = 10
 RSI_OVERSOLD_MIN_SAMPLES = 60
@@ -96,12 +94,12 @@ YEAR_TIER_ABS_CEIL_PCT  = -10
 TA_MAX_DATA_AGE_MS = 3 * 24 * 3600 * 1000
 TA_FETCH_DELAY_S = 1.5
 
-DISCOVERY_MARKET_LIMIT = 100   # matches DISCOVER_TOP_N = 100
-DISCOVERY_TA_LIMIT = 25        # matches DISCOVER_MAX_TA_FETCHES = 25
+DISCOVERY_MARKET_LIMIT = 100
+DISCOVERY_TA_LIMIT = 25
 DISCOVERY_DELAY_S = 2.1
 DISCOVERY_REPORT_SIGNALS = {"ACCUMULATE"}
 
-TA_SCHEMA_VERSION = 7  # aligns gapAvgDailyMove (90d), overbought clamp (78-90), and SWING TRIM/HOLD rules with HTML
+TA_SCHEMA_VERSION = 7
 
 _LAST_HTTP_ERR = None
 
@@ -636,38 +634,6 @@ def fetch_market_universe():
         return None
 
 # ── Signal engine (1:1 with Portfolio_Tracker.html) ───────────────
-def year_high_drawdown(closes, cur, high_24h, low_24h, ath_value, ath_date, atl_value, atl_date, stored):
-    if not closes or len(closes) < YEAR_HIGH_DAYS - 20 or cur is None:
-        return None
-    w = closes[-YEAR_HIGH_DAYS:]
-    high, low = max(w), min(w)
-    high_days, low_days = len(w) - w.index(high), len(w) - w.index(low)
-    high_src = low_src = "closes"
-    if stored:
-        if stored.get("high") is not None and stored["high"] > high:
-            high, high_days, high_src = stored["high"], stored.get("highDaysAgo"), stored.get("highSrc") or "ohlc"
-        if stored.get("low") is not None and stored["low"] < low:
-            low, low_days, low_src = stored["low"], stored.get("lowDaysAgo"), stored.get("lowSrc") or "ohlc"
-    ds_atl = days_since(atl_date) if atl_value is not None and atl_date else None
-    if ds_atl is not None and ds_atl <= YEAR_HIGH_DAYS and atl_value <= low * 1.005:
-        low, low_days, low_src = min(low, atl_value), ds_atl, "exact"
-    ds_ath = days_since(ath_date) if ath_value is not None and ath_date else None
-    if ds_ath is not None and ds_ath <= YEAR_HIGH_DAYS and ath_value >= high * 0.995:
-        high, high_days, high_src = max(high, ath_value), ds_ath, "exact"
-    live_high = max(cur, high_24h) if high_24h is not None else cur
-    live_low = min(cur, low_24h) if low_24h is not None else cur
-    if live_high > high:
-        high, high_days, high_src = live_high, 0, "exact"
-    if live_low < low:
-        low, low_days, low_src = live_low, 0, "exact"
-    return {
-        "high": high, "low": low, "highDaysAgo": high_days, "lowDaysAgo": low_days,
-        "highApprox": high_src == "ohlc", "lowApprox": low_src == "ohlc",
-        "pct": (cur - high) / high * 100,
-        "abovePct": (cur - low) / low * 100,
-        "rangePos": (cur - low) / (high - low) * 100 if high > low else None,
-    }
-
 EXTREME_TOL = 5e-4
 
 def rsi_at_extreme(series, days_ago, is_live):
@@ -1064,7 +1030,6 @@ def refresh_ta(state, ids):
     ta_cache = state.setdefault("ta_cache", {})
     now_ms = time.time() * 1000
 
-    # Local logic-only recompute from cached closes (preserves OHLC/hourly wick overlays)
     recomputed = 0
     for cid in ids:
         cached = ta_cache.get(cid)
@@ -1135,32 +1100,32 @@ SIGNAL_EMOJI = {
 
 def fmt_inr(n):
     if n is None:
-        return "\u2014"
-    return f"\u20b9{n:,.2f}" if abs(n) < 1000 else f"\u20b9{n:,.0f}"
+        return "—"
+    return f"₹{n:,.2f}" if abs(n) < 1000 else f"₹{n:,.0f}"
 
 def digest_message(results):
-    lines = ["\U0001F4CA <b>Portfolio Signal Digest</b>\n"]
+    lines = ["📊 <b>Portfolio Signal Digest</b>\n"]
     for cid, r in results.items():
         sym = PORTFOLIO[cid]["symbol"]
-        emoji = SIGNAL_EMOJI.get(r["signal"], "\u26AA")
+        emoji = SIGNAL_EMOJI.get(r["signal"], "⚪")
         lines.append(f"{emoji} <b>{sym}</b> {fmt_inr(r['cmp'])} — {r['signal']} ({r['strength']}%)")
     return "\n".join(lines)
 
 def change_message(cid, prev, new):
     sym = PORTFOLIO[cid]["symbol"]
-    emoji = SIGNAL_EMOJI.get(new["signal"], "\u26AA")
+    emoji = SIGNAL_EMOJI.get(new["signal"], "⚪")
     return (
-        f"{emoji} <b>{sym} \u2192 {new['signal']}</b> ({new['strength']}%)\n\n"
+        f"{emoji} <b>{sym} → {new['signal']}</b> ({new['strength']}%)\n\n"
         f"Was: {prev or 'N/A'}\n"
         f"CMP: {fmt_inr(new['cmp'])}\n\n"
         f"{html.escape(new['reason'])}"
     )
 
 def candidate_discovery_message(candidates):
-    lines = [f"\U0001F50E <b>New Add Candidates (Top {DISCOVERY_MARKET_LIMIT})</b>", "Outside your portfolio · matching ACCUMULATE\n"]
+    lines = [f"🔎 <b>New Add Candidates (Top {DISCOVERY_MARKET_LIMIT})</b>", "Outside your portfolio · matching ACCUMULATE\n"]
     for coin in candidates:
         signal = coin["result"]["signal"]
-        emoji = SIGNAL_EMOJI.get(signal, "\u26AA")
+        emoji = SIGNAL_EMOJI.get(signal, "⚪")
         symbol = html.escape(coin["symbol"] or coin["id"].upper())
         name = html.escape(coin["name"])
         rank = coin["rank"] if coin["rank"] is not None else "—"
@@ -1194,7 +1159,6 @@ def run_candidate_discovery(state, macro_ta):
             return (cur - lo) / lo * 100
         return None
 
-    # Stage 1 prefilter: matches HTML discoverCandidates()
     shortlist = []
     for cid, md in universe.items():
         if cid in portfolio_ids:
@@ -1228,8 +1192,6 @@ def run_candidate_discovery(state, macro_ta):
         print("Candidate discovery complete; no coins cleared Stage 1 prefilter.")
         return True
 
-    # Stage 2: 1 call/coin on daily closes first, then 2-call wick confirmation ONLY on hits.
-    # Kept in local memory (not state["ta_cache"]) so state.json doesn't bloat with non-held coins.
     seen = state.setdefault("discovery_candidates", {})
     newly_qualified = []
 
@@ -1269,7 +1231,6 @@ def run_candidate_discovery(state, macro_ta):
                         seen[cid] = {"signal": sig["signal"], "lastSeen": today}
         time.sleep(DISCOVERY_DELAY_S)
 
-    # Clear coins that exited ACCUMULATE so they alert fresh if they qualify again later
     for cid in [k for k, v in seen.items() if (v or {}).get("lastSeen") != today]:
         del seen[cid]
 
@@ -1289,7 +1250,6 @@ def main():
     all_ids = list(dict.fromkeys(ids + [MACRO_ID]))
     keep_ids = set(all_ids)
 
-    # Prune any leftover non-portfolio coins from ta_cache
     ta_cache = state.setdefault("ta_cache", {})
     for cid in [k for k in list(ta_cache.keys()) if k not in keep_ids]:
         del ta_cache[cid]
@@ -1297,7 +1257,7 @@ def main():
     print("Fetching market data...")
     market = fetch_market_data(all_ids)
     if market is None:
-        send_telegram("\u26A0\uFE0F Tracker bot: market data fetch failed.")
+        send_telegram("⚠️ Tracker bot: market data fetch failed.")
         return
 
     print("Refreshing TA (if stale)...")
