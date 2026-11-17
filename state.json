@@ -1,7 +1,7 @@
 {
   "signals": {
     "elrond-erd-2": "WAIT",
-    "kava": "WAIT",
+    "kava": "ACCUMULATE",
     "axie-infinity": "WAIT",
     "polkadot": "WAIT",
     "theta-fuel": "WAIT",
@@ -12,7 +12,7 @@
     "internet-computer": "WAIT",
     "nano": "WAIT",
     "ethereum": "WAIT",
-    "bitcoin": "ACCUMULATE"
+    "bitcoin": "WAIT"
   },
   "ta_cache": {
     "elrond-erd-2": {
@@ -5298,34 +5298,18 @@
   "last_daily": "2026-11-04",
   "dca_log": {},
   "discovery_candidates": {
-    "filecoin": {
-      "signal": "ACCUMULATE",
-      "lastSeen": "2026-11-16"
-    },
     "mantle": {
       "signal": "ACCUMULATE",
-      "lastSeen": "2026-11-16"
+      "lastSeen": "2026-11-17"
     },
     "htx-dao": {
       "signal": "ACCUMULATE",
-      "lastSeen": "2026-11-16"
+      "lastSeen": "2026-11-17"
     },
-    "morpho": {
+    "pi-network": {
       "signal": "ACCUMULATE",
-      "lastSeen": "2026-11-16"
-    },
-    "kucoin-shares": {
-      "signal": "ACCUMULATE",
-      "lastSeen": "2026-11-16"
-    },
-    "nexo": {
-      "signal": "ACCUMULATE",
-      "lastSeen": "2026-11-16"
-    },
-    "crypto-com-chain": {
-      "signal": "ACCUMULATE",
-      "lastSeen": "2026-11-16"
+      "lastSeen": "2026-11-17"
     }
   },
-  "last_discovery": "2026-11-16"
+  "last_discovery": "2026-11-17"
 }
