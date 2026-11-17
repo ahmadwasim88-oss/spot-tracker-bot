@@ -11,7 +11,7 @@
     "1inch": "WAIT",
     "internet-computer": "WAIT",
     "nano": "WAIT",
-    "ethereum": "ACCUMULATE",
+    "ethereum": "WAIT",
     "bitcoin": "ACCUMULATE"
   },
   "ta_cache": {
