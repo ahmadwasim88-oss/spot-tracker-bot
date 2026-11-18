@@ -1,6 +1,6 @@
 {
   "signals": {
-    "elrond-erd-2": "ACCUMULATE",
+    "elrond-erd-2": "WAIT",
     "kava": "WAIT",
     "axie-infinity": "WAIT",
     "polkadot": "WAIT",
