@@ -1,17 +1,17 @@
 {
   "signals": {
-    "elrond-erd-2": "WAIT",
+    "elrond-erd-2": "ACCUMULATE",
     "kava": "WAIT",
-    "axie-infinity": "WAIT",
+    "axie-infinity": "ACCUMULATE",
     "polkadot": "WAIT",
     "theta-fuel": "WAIT",
     "polygon-ecosystem-token": "WAIT",
     "the-graph": "WAIT",
     "avalanche-2": "WAIT",
-    "1inch": "WAIT",
+    "1inch": "ACCUMULATE",
     "internet-computer": "WAIT",
     "nano": "WAIT",
-    "ethereum": "WAIT",
+    "ethereum": "ACCUMULATE",
     "bitcoin": "ACCUMULATE"
   },
   "ta_cache": {
