@@ -8,11 +8,11 @@
     "polygon-ecosystem-token": "WAIT",
     "the-graph": "WAIT",
     "avalanche-2": "WAIT",
-    "1inch": "ACCUMULATE",
+    "1inch": "WAIT",
     "internet-computer": "WAIT",
     "nano": "WAIT",
-    "ethereum": "ACCUMULATE",
-    "bitcoin": "ACCUMULATE"
+    "ethereum": "WAIT",
+    "bitcoin": "WAIT"
   },
   "ta_cache": {
     "elrond-erd-2": {
