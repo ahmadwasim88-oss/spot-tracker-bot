@@ -1,10 +1,10 @@
 {
   "signals": {
-    "elrond-erd-2": "ACCUMULATE",
+    "elrond-erd-2": "WAIT",
     "kava": "WAIT",
     "axie-infinity": "ACCUMULATE",
     "polkadot": "ACCUMULATE",
-    "theta-fuel": "ACCUMULATE",
+    "theta-fuel": "WAIT",
     "polygon-ecosystem-token": "WAIT",
     "the-graph": "WAIT",
     "avalanche-2": "ACCUMULATE",
