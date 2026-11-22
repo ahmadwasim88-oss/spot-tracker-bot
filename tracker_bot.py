@@ -17,7 +17,7 @@ STATE_FILE = "state.json"
 # Edit this dict directly on GitHub to add/remove coins or change targets.
 PORTFOLIO = {
     "elrond-erd-2":            {"symbol": "EGLD",  "target": 5016.65},
-    "kava":                    {"symbol": "KAVA",  "target": 93.11},
+    "kava":                    {"symbol": "KAVA",  "target": 60.59},
     "axie-infinity":           {"symbol": "AXS",   "target": 1295.67},
     "polkadot":                {"symbol": "DOT",   "target": 1379.78},
     "theta-fuel":              {"symbol": "TFUEL", "target": 8.95},
