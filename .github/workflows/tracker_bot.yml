@@ -2,7 +2,7 @@ name: Spot Tracker Bot
 
 on:
   schedule:
-    - cron: '0 */2 * * *'
+    - cron: '37 */2 * * *'
   workflow_dispatch:
   push:
     branches: [main]
