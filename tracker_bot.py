@@ -121,7 +121,7 @@ YEAR_TIER_ABS_CEIL_PCT  = -10
 ATH_TTL_S = 7 * 24 * 3600   # Binance weekly-history ATH/ATL is re-read at most weekly...
 ATH_REFRESH_TOL = 5e-4      # ...or sooner if a fresh 365-day daily extreme beats the stored one
 
-DISCOVER_TOP_N = 100            # top N Binance USDT pairs by 24h volume
+DISCOVER_TOP_N = 200            # top N Binance USDT pairs by 24h volume
 DISCOVER_MAX_TA_FETCHES = 100
 DISCOVERY_REPORT_SIGNALS = {"ACCUMULATE"}
 STABLECOIN_BASES = {
