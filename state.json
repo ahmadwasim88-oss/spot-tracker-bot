@@ -12,7 +12,7 @@
     "ICPUSDT": "WAIT",
     "XNOUSDT": "AT RISK",
     "ETHUSDT": "WAIT",
-    "BTCUSDT": "WAZ"
+    "BTCUSDT": "WAIT"
   },
   "ta_cache": {
     "EGLDUSDT": {
