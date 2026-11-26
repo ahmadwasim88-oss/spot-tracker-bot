@@ -1119,7 +1119,7 @@
       ],
       "volMedUsd": 269633.85042,
       "closesEndTs": 1795564800000,
-      "timestamp": 1795676977662.9119,
+      "timestamp": 1795677051541.083,
       "schemaVersion": 8
     },
     "KAVAUSDT": {
@@ -2226,7 +2226,7 @@
       ],
       "volMedUsd": 791759.231735,
       "closesEndTs": 1795564800000,
-      "timestamp": 1795676977662.9119,
+      "timestamp": 1795677051541.083,
       "schemaVersion": 8
     },
     "AXSUSDT": {
@@ -3333,7 +3333,7 @@
       ],
       "volMedUsd": 564446.7383,
       "closesEndTs": 1795564800000,
-      "timestamp": 1795676977662.9119,
+      "timestamp": 1795677051541.083,
       "schemaVersion": 8
     },
     "DOTUSDT": {
@@ -4440,7 +4440,7 @@
       ],
       "volMedUsd": 3343871.02024,
       "closesEndTs": 1795564800000,
-      "timestamp": 1795676977662.9119,
+      "timestamp": 1795677051541.083,
       "schemaVersion": 8
     },
     "TFUELUSDT": {
@@ -5547,7 +5547,7 @@
       ],
       "volMedUsd": 90361.85233,
       "closesEndTs": 1795564800000,
-      "timestamp": 1795676977662.9119,
+      "timestamp": 1795677051541.083,
       "schemaVersion": 8
     },
     "POLUSDT": {
@@ -6654,7 +6654,7 @@
       ],
       "volMedUsd": 2875995.357888,
       "closesEndTs": 1795564800000,
-      "timestamp": 1795676977662.9119,
+      "timestamp": 1795677051541.083,
       "schemaVersion": 8
     },
     "GRTUSDT": {
@@ -7761,7 +7761,7 @@
       ],
       "volMedUsd": 516575.01787,
       "closesEndTs": 1795564800000,
-      "timestamp": 1795676977662.9119,
+      "timestamp": 1795677051541.083,
       "schemaVersion": 8
     },
     "AVAXUSDT": {
@@ -8868,7 +8868,7 @@
       ],
       "volMedUsd": 14703627.73135,
       "closesEndTs": 1795564800000,
-      "timestamp": 1795676977662.9119,
+      "timestamp": 1795677051541.083,
       "schemaVersion": 8
     },
     "1INCHUSDT": {
@@ -9975,7 +9975,7 @@
       ],
       "volMedUsd": 381895.21832,
       "closesEndTs": 1795564800000,
-      "timestamp": 1795676977662.9119,
+      "timestamp": 1795677051541.083,
       "schemaVersion": 8
     },
     "ICPUSDT": {
@@ -11082,7 +11082,7 @@
       ],
       "volMedUsd": 4697960.21194,
       "closesEndTs": 1795564800000,
-      "timestamp": 1795676977662.9119,
+      "timestamp": 1795677051541.083,
       "schemaVersion": 8
     },
     "XNOUSDT": {
@@ -12189,7 +12189,7 @@
       ],
       "volMedUsd": 65677.23543,
       "closesEndTs": 1795564800000,
-      "timestamp": 1795676977662.9119,
+      "timestamp": 1795677051541.083,
       "schemaVersion": 8
     },
     "ETHUSDT": {
@@ -13296,7 +13296,7 @@
       ],
       "volMedUsd": 576243660.533386,
       "closesEndTs": 1795564800000,
-      "timestamp": 1795676977662.9119,
+      "timestamp": 1795677051541.083,
       "schemaVersion": 8
     },
     "BTCUSDT": {
@@ -14403,7 +14403,7 @@
       ],
       "volMedUsd": 1251208115.7763445,
       "closesEndTs": 1795564800000,
-      "timestamp": 1795676977662.9119,
+      "timestamp": 1795677051541.083,
       "schemaVersion": 8
     }
   },
@@ -14414,7 +14414,7 @@
       "binAtlUsd": 2.116,
       "binAtlDate": "2026-11-25",
       "binListDate": "2020-08-31",
-      "fetchedAt": 1795676985627.7654
+      "fetchedAt": 1795677060724.5842
     },
     "KAVAUSDT": {
       "binAthUsd": 9.218,
@@ -14422,7 +14422,7 @@
       "binAtlUsd": 0.0054,
       "binAtlDate": "2025-10-10",
       "binListDate": "2019-10-21",
-      "fetchedAt": 1795676986965.9534
+      "fetchedAt": 1795677062562.0203
     },
     "AXSUSDT": {
       "binAthUsd": 166.09,
@@ -14430,7 +14430,7 @@
       "binAtlUsd": 0.1,
       "binAtlDate": "2020-11-04",
       "binListDate": "2020-11-02",
-      "fetchedAt": 1795676988294.3713
+      "fetchedAt": 1795677063986.9958
     },
     "DOTUSDT": {
       "binAthUsd": 55.09,
@@ -14438,7 +14438,7 @@
       "binAtlUsd": 0.618,
       "binAtlDate": "2026-11-21",
       "binListDate": "2020-08-17",
-      "fetchedAt": 1795676989614.6526
+      "fetchedAt": 1795677065405.4978
     },
     "TFUELUSDT": {
       "binAthUsd": 0.67999,
@@ -14446,7 +14446,7 @@
       "binAtlUsd": 0.000772,
       "binAtlDate": "2020-03-13",
       "binListDate": "2019-05-20",
-      "fetchedAt": 1795676990940.987
+      "fetchedAt": 1795677066838.0178
     },
     "POLUSDT": {
       "binAthUsd": 1.0,
@@ -14454,7 +14454,7 @@
       "binAtlUsd": 0.06746,
       "binAtlDate": "2026-07-01",
       "binListDate": "2024-09-09",
-      "fetchedAt": 1795676992156.5664
+      "fetchedAt": 1795677068174.1965
     },
     "GRTUSDT": {
       "binAthUsd": 2.88073,
@@ -14462,7 +14462,7 @@
       "binAtlUsd": 0.01299,
       "binAtlDate": "2026-08-18",
       "binListDate": "2020-12-14",
-      "fetchedAt": 1795676993470.6284
+      "fetchedAt": 1795677069611.895
     },
     "AVAXUSDT": {
       "binAthUsd": 147.0,
@@ -14470,7 +14470,7 @@
       "binAtlUsd": 0.85,
       "binAtlDate": "2020-09-22",
       "binListDate": "2020-09-21",
-      "fetchedAt": 1795676994793.301
+      "fetchedAt": 1795677071048.3958
     },
     "1INCHUSDT": {
       "binAthUsd": 7.8748,
@@ -14478,7 +14478,7 @@
       "binAtlUsd": 0.0551,
       "binAtlDate": "2026-11-25",
       "binListDate": "2020-12-21",
-      "fetchedAt": 1795676996114.9197
+      "fetchedAt": 1795677072470.3247
     },
     "ICPUSDT": {
       "binAthUsd": 2831.02,
@@ -14486,7 +14486,7 @@
       "binAtlUsd": 1.16,
       "binAtlDate": "2025-10-10",
       "binListDate": "2021-05-10",
-      "fetchedAt": 1795676997431.5647
+      "fetchedAt": 1795677073891.4019
     },
     "XNOUSDT": {
       "binAthUsd": 3.89,
@@ -14494,7 +14494,7 @@
       "binAtlUsd": 0.153,
       "binAtlDate": "2025-10-10",
       "binListDate": "2022-01-24",
-      "fetchedAt": 1795676998753.4597
+      "fetchedAt": 1795677075322.707
     },
     "ETHUSDT": {
       "binAthUsd": 4956.78,
@@ -14502,7 +14502,7 @@
       "binAtlUsd": 81.79,
       "binAtlDate": "2018-12-15",
       "binListDate": "2017-08-14",
-      "fetchedAt": 1795677000078.2908
+      "fetchedAt": 1795677076752.4014
     },
     "BTCUSDT": {
       "binAthUsd": 126199.63,
@@ -14510,7 +14510,7 @@
       "binAtlUsd": 2817.0,
       "binAtlDate": "2017-09-15",
       "binListDate": "2017-08-14",
-      "fetchedAt": 1795677002070.8982
+      "fetchedAt": 1795677078186.5537
     }
   },
   "last_daily": "2026-11-26",
