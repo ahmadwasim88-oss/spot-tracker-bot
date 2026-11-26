@@ -9,38 +9,52 @@ from datetime import datetime, timezone, timedelta
 # ── Config ────────────────────────────────────────────────────────
 TELEGRAM_TOKEN   = os.environ.get("TELEGRAM_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
-API_BASE = "https://api.coingecko.com/api/v3"
-API_KEY = os.environ.get("COINGECKO_API_KEY", "")
+
+# Market data is Binance spot (USDT pairs), exactly as in Portfolio_Tracker.html. data-api.binance.vision is
+# listed first because GitHub-hosted runners are US-based and api.binance.com answers those with HTTP 451.
+BINANCE_HOSTS = [
+    "https://data-api.binance.vision",
+    "https://api-gcp.binance.com",
+    "https://api.binance.com",
+]
+# INR price = Binance USDT price x effective USDT/INR rate. The rate is the exchange USDT/INR published by the
+# Crypto-tools JSON (what the HTML auto-syncs to); the bank USD/INR rate is only the anchor/fallback.
+USDT_INR_JSON_URL = "https://ahmadwasim88-oss.github.io/Crypto-tools/index.json"
+BANK_FX_SOURCES = [
+    ("https://api.frankfurter.dev/v2/rate/usd/inr", lambda j: j.get("rate")),
+    ("https://open.er-api.com/v6/latest/USD", lambda j: (j.get("rates") or {}).get("INR")),
+]
+FX_PLAUSIBLE_RATIO = (0.85, 1.5)  # exchange USDT/INR vs bank USD/INR; outside this the reading is ignored
 
 STATE_FILE = "state.json"
-# Coin list + INR targets, ported from the tracker's saved portfolio.
-# Edit this dict directly on GitHub to add/remove coins or change targets.
-PORTFOLIO = {
-    "elrond-erd-2":            {"symbol": "EGLD",  "target": 5016.65},
-    "kava":                    {"symbol": "KAVA",  "target": 60.59},
-    "axie-infinity":           {"symbol": "AXS",   "target": 1295.67},
-    "polkadot":                {"symbol": "DOT",   "target": 1379.78},
-    "theta-fuel":              {"symbol": "TFUEL", "target": 8.95},
-    "polygon-ecosystem-token": {"symbol": "POL",   "target": 98.5},
-    "the-graph":               {"symbol": "GRT",   "target": 12.11},
-    "avalanche-2":             {"symbol": "AVAX",  "target": 6612.02},
-    "1inch":                   {"symbol": "1INCH", "target": 64.6},
-    "internet-computer":       {"symbol": "ICP",   "target": 1765.6},
-    "nano":                    {"symbol": "XNO",   "target": 247.4},
-    "ethereum":                {"symbol": "ETH",   "target": 431946},
-    "bitcoin":                 {"symbol": "BTC",   "target": 11187013},
-}
-MACRO_ID = "bitcoin"  # used for relative-strength-vs-BTC; always fetched even if not held
+STATE_SOURCE = "binance"  # bump when stored data/keys change so old state is reset instead of misread
 
-# ── Signal-engine constants (1:1 with Portfolio_Tracker.html) ─────
+# Keys are Binance USDT symbols (the HTML tool's coin ids). Edit this dict to add/remove coins or change targets.
+PORTFOLIO = {
+    "EGLDUSDT":  {"symbol": "EGLD",  "target": 5016.65},
+    "KAVAUSDT":  {"symbol": "KAVA",  "target": 60.59},
+    "AXSUSDT":   {"symbol": "AXS",   "target": 1295.67},
+    "DOTUSDT":   {"symbol": "DOT",   "target": 1379.78},
+    "TFUELUSDT": {"symbol": "TFUEL", "target": 8.95},
+    "POLUSDT":   {"symbol": "POL",   "target": 98.5},
+    "GRTUSDT":   {"symbol": "GRT",   "target": 12.11},
+    "AVAXUSDT":  {"symbol": "AVAX",  "target": 6612.02},
+    "1INCHUSDT": {"symbol": "1INCH", "target": 64.6},
+    "ICPUSDT":   {"symbol": "ICP",   "target": 1765.6},
+    "XNOUSDT":   {"symbol": "XNO",   "target": 247.4},
+    "ETHUSDT":   {"symbol": "ETH",   "target": 431946},
+    "BTCUSDT":   {"symbol": "BTC",   "target": 11187013},
+}
+MACRO_ID = "BTCUSDT"  # used for relative-strength-vs-BTC; always fetched even if not held
+
+# ── Constants (kept in step with Portfolio_Tracker.html) ──────────
 DCA_EXTREME_PCT   = -85
 DCA_DEEP_PCT      = -70
 DCA_MODERATE_PCT  = -40
 DCA_WATCH_PCT     = -20
 DCA_DIP_WINDOW_DAYS = 90
 DCA_DIP_NEAR_PCT    = 3  # fallback only, used before a coin has enough TA history
-DCA_VOL_LOOKBACK_DAYS = 20
-DCA_GAP_VOL_LOOKBACK_DAYS = 90
+DCA_VOL_LOOKBACK_DAYS = 90  # ONE volatility baseline shared by ATH/year tiers, near-low/high band and the DCA gap
 DCA_STEP_CHAIN_MAX_DAYS = 180
 DCA_GAP_TIERS = [
     {"floor": 15, "ceil": 20, "mult": 5.5},  # Buy #2 (after 1st DCA): 15%–20%
@@ -54,22 +68,31 @@ REL_STRENGTH_MAX_BONUS = 8
 EMA_TREND_FAST_SHORT = 20
 EMA_TREND_FAST_LONG  = 50
 EMA_TREND_LONG = 200
-RSI_PERIOD    = 14
-RSI_OVERSOLD  = 30   # fallback only
+RSI_PERIOD     = 14
+RSI_OVERSOLD   = 30  # fallback only
 RSI_OVERBOUGHT = 85  # fallback only
 TARGET_PROXIMITY_PCT = 3
-LIQUIDITY_DEAD_RATIO = 0.0005
-ABSOLUTE_DEAD_VOLUME = 100000
-MICROCAP_FLOOR = 2000000
-RANK_CAUTION   = 500
+
+# Liquidity (all from Binance): 24h volume vs the coin's own 30-day median, absolute thinness, order-book spread
+VOLUME_COLLAPSE_RATIO = 0.05   # 24h volume under 5% of its own 30-day median -> EXIT
+VOLUME_FADING_RATIO   = 0.15   # under 15% -> AT RISK
+VOLUME_CEIL_USDT      = 1_000_000  # at/above this much 24h volume a drop vs the median is a cool-off, never EXIT/AT RISK
+THIN_VOLUME_USDT      = 200_000    # under this many USDT per 24h: thin -> AT RISK
+VOL_MEDIAN_DAYS       = 30
+ABSOLUTE_DEAD_VOLUME  = 100_000    # INR
+SPREAD_RISK_PCT       = 1.5
+SPREAD_EXIT_PCT       = 5.0
+SPREAD_MIN_TICKS      = 2
+
 TA_HISTORY_DAYS = 365
-TA_ALIGN_BUFFER_MIN = 15  # TA is treated stale once per UTC day, 15 min after 00:00 UTC
+TA_ALIGN_BUFFER_S = 15  # TA is treated stale once per UTC day, 15 s after 00:00 UTC (Binance daily candles close exactly then)
+TA_MAX_DATA_AGE_MS = 3 * 24 * 3600 * 1000
+HEAVY_CALL_GAP_S = 0.07  # same pacing as the HTML tool (Binance klines weight=2, 6000/min limit)
 
 RSI_OVERSOLD_PERCENTILE = 10
 RSI_OVERSOLD_MIN_SAMPLES = 60
 RSI_OVERSOLD_FLOOR = 20
 RSI_OVERSOLD_CEIL = 35
-
 RSI_OVERBOUGHT_PERCENTILE = 97
 RSI_OVERBOUGHT_MIN_SAMPLES = 60
 RSI_OVERBOUGHT_FLOOR = 78
@@ -86,6 +109,7 @@ REF_LOW_RSI_MARGIN = 0
 DCA_NEAR_LOW_MULT = 1.0
 DCA_NEAR_LOW_FLOOR_PCT = 1.5
 DCA_NEAR_LOW_CEIL_PCT = 8
+EXTREME_TOL = 5e-4
 
 YEAR_HIGH_DAYS = 365
 DCA_YEAR_EXTREME_PCT  = -60
@@ -93,15 +117,20 @@ DCA_YEAR_DEEP_PCT     = -45
 DCA_YEAR_MODERATE_PCT = -30
 YEAR_TIER_ABS_FLOOR_PCT = -80
 YEAR_TIER_ABS_CEIL_PCT  = -10
-TA_MAX_DATA_AGE_MS = 3 * 24 * 3600 * 1000
-TA_FETCH_DELAY_S = 1.5
 
-DISCOVERY_MARKET_LIMIT = 100   # matches DISCOVER_TOP_N = 100
-DISCOVERY_TA_LIMIT = 25        # matches DISCOVER_MAX_TA_FETCHES = 25
-DISCOVERY_DELAY_S = 2.1
+ATH_TTL_S = 7 * 24 * 3600   # Binance weekly-history ATH/ATL is re-read at most weekly...
+ATH_REFRESH_TOL = 5e-4      # ...or sooner if a fresh 365-day daily extreme beats the stored one
+
+DISCOVER_TOP_N = 100            # top N Binance USDT pairs by 24h volume
+DISCOVER_MAX_TA_FETCHES = 100
 DISCOVERY_REPORT_SIGNALS = {"ACCUMULATE"}
+STABLECOIN_BASES = {
+    "USDC", "FDUSD", "TUSD", "USDE", "USDP", "DAI", "BUSD", "USDS", "USD1", "PYUSD", "RLUSD", "XUSD", "USDD",
+    "FRAX", "EURI", "EUR", "AEUR", "GBP", "TRY", "BRL", "JPY", "AUD", "ARS", "MXN", "PLN", "RON", "UAH", "ZAR",
+    "CZK", "COP",
+}
 
-TA_SCHEMA_VERSION = 7  # aligns gapAvgDailyMove (90d), overbought clamp (78-90), and SWING TRIM/HOLD rules with HTML
+TA_SCHEMA_VERSION = 8  # 8: Binance data layer (USDT series cached, INR derived each run), one 90d volatility window
 
 _LAST_HTTP_ERR = None
 
@@ -124,11 +153,22 @@ def load_state():
         with open(STATE_FILE) as f:
             return json.load(f)
     except Exception:
-        return {"signals": {}, "ta_cache": {}, "ta_timestamp": 0, "last_daily": "", "dca_log": {}}
+        return {"signals": {}, "ta_cache": {}, "ath_cache": {}, "last_daily": "", "dca_log": {}}
 
 def save_state(s):
     with open(STATE_FILE, "w") as f:
         json.dump(s, f, indent=2)
+
+def migrate_state(state):
+    """State written by the CoinGecko version is keyed by CoinGecko ids and holds INR series; neither is
+    reusable. Drop it (dca_log, last_daily kept) and report True so main() doesn't fire a change alert per coin."""
+    if state.get("dataSource") == STATE_SOURCE:
+        return False
+    for k in ("signals", "ta_cache", "ath_cache", "discovery_candidates"):
+        state[k] = {}
+    state.pop("last_discovery", None)
+    state["dataSource"] = STATE_SOURCE
+    return True
 
 # ── Formatting ────────────────────────────────────────────────────
 SIGNAL_EMOJI = {
@@ -143,6 +183,32 @@ def fmt_inr(n):
     a = abs(n)
     dec = 2 if a >= 100 else (4 if a >= 1 else (6 if a >= 0.01 else 8))
     return f"\u20b9{n:,.{dec}f}"
+
+def f2(v):
+    return "\u2014" if v is None else f"{v:.2f}"
+
+def days_since(date_str):
+    """Whole UTC calendar days since a YYYY-MM-DD (or ISO) date, same as the HTML tool's daysSince."""
+    if not date_str:
+        return None
+    try:
+        then = datetime.strptime(str(date_str)[:10], "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+    today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    return max(0, round((today - then).total_seconds() / 86400))
+
+def days_since_ts(ts_ms):
+    if ts_ms is None:
+        return None
+    return days_since(datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).strftime("%Y-%m-%d"))
+
+def _num(x):
+    try:
+        v = float(x)
+        return v if math.isfinite(v) else None
+    except (TypeError, ValueError):
+        return None
 
 # ── DCA gap gate (1:1 with Portfolio_Tracker.html) ────────────────
 def _dca_entry_time_ms(entry):
@@ -307,435 +373,427 @@ def calc_avg_daily_move_pct(closes, days):
 def percentile_of(sorted_asc, pct):
     if not sorted_asc:
         return None
-    idx = int((pct / 100) * (len(sorted_asc) - 1))
-    return sorted_asc[idx]
-
-def reconstruct_streak_days(closes, cur, rsi_threshold=None, near_low_threshold_pct=None, window_days=None):
-    if not closes or cur is None:
-        return 1
-    threshold = rsi_threshold if rsi_threshold is not None else RSI_OVERSOLD
-    near_low_pct = near_low_threshold_pct if near_low_threshold_pct is not None else DCA_DIP_NEAR_PCT
-    window_days = window_days or DCA_DIP_WINDOW_DAYS
-    series = closes + [cur]
-    rsi_series = calc_rsi_series(series, RSI_PERIOD)
-    streak = 0
-    for i in range(len(series) - 1, -1, -1):
-        rsi = rsi_series[i] if i < len(rsi_series) else None
-        if rsi is None:
-            break
-        window_start = max(0, i - window_days + 1)
-        low = min(series[window_start:i + 1])
-        if not low or low <= 0:
-            break
-        above_low = (series[i] - low) / low * 100
-        if not (above_low <= near_low_pct and rsi <= threshold):
-            break
-        streak += 1
-    return streak or 1
+    return sorted_asc[int((pct / 100) * (len(sorted_asc) - 1))]
 
 def compute_ta_from_closes(closes):
+    """Per-coin indicators from daily INR closes. Rolling extremes here are close-based; apply_range_extremes
+    replaces them with the exact daily highs/lows."""
     if not closes or len(closes) < RSI_PERIOD + 1:
         return None
     ema_long_series = calc_ema_series(closes, EMA_TREND_LONG)
     rsi_series = calc_rsi_series(closes, RSI_PERIOD)
     dip_window = closes[-DCA_DIP_WINDOW_DAYS:]
-    rolling_low = min(dip_window) if dip_window else None
-    rolling_low_index = dip_window.index(rolling_low) if dip_window else -1
-    rolling_high = max(dip_window) if dip_window else None
-    rolling_high_index = dip_window.index(rolling_high) if dip_window else -1
+    rolling_low, rolling_high = min(dip_window), max(dip_window)
 
-    valid_rsi = [v for v in rsi_series if v is not None]
+    valid_rsi = sorted(v for v in rsi_series if v is not None)
     rsi_oversold_threshold = RSI_OVERSOLD
     if len(valid_rsi) >= RSI_OVERSOLD_MIN_SAMPLES:
-        p = percentile_of(sorted(valid_rsi), RSI_OVERSOLD_PERCENTILE)
+        p = percentile_of(valid_rsi, RSI_OVERSOLD_PERCENTILE)
         if p is not None:
             rsi_oversold_threshold = max(RSI_OVERSOLD_FLOOR, min(RSI_OVERSOLD_CEIL, p))
     rsi_overbought_threshold = RSI_OVERBOUGHT
     if len(valid_rsi) >= RSI_OVERBOUGHT_MIN_SAMPLES:
-        p_high = percentile_of(sorted(valid_rsi), RSI_OVERBOUGHT_PERCENTILE)
+        p_high = percentile_of(valid_rsi, RSI_OVERBOUGHT_PERCENTILE)
         if p_high is not None:
             rsi_overbought_threshold = max(RSI_OVERBOUGHT_FLOOR, min(RSI_OVERBOUGHT_CEIL, p_high))
 
     avg_daily_move = calc_avg_daily_move_pct(closes, DCA_VOL_LOOKBACK_DAYS)
-    gap_avg_daily_move = calc_avg_daily_move_pct(closes, DCA_GAP_VOL_LOOKBACK_DAYS)
-    if gap_avg_daily_move is None:
-        gap_avg_daily_move = avg_daily_move
     vol_scale = max(VOL_SCALE_MIN, min(VOL_SCALE_MAX, avg_daily_move / VOL_SCALE_REF_PCT)) if avg_daily_move is not None else 1
     near_low_threshold_pct = max(
         DCA_NEAR_LOW_FLOOR_PCT,
-        min(DCA_NEAR_LOW_CEIL_PCT, (avg_daily_move if avg_daily_move is not None else DCA_NEAR_LOW_FLOOR_PCT) * DCA_NEAR_LOW_MULT)
+        min(DCA_NEAR_LOW_CEIL_PCT, (avg_daily_move if avg_daily_move is not None else DCA_NEAR_LOW_FLOOR_PCT) * DCA_NEAR_LOW_MULT),
     )
 
     def clamp_tier(base):
         return max(ATH_TIER_ABS_FLOOR_PCT, min(ATH_TIER_ABS_CEIL_PCT, base * vol_scale))
 
-    ath_tiers = {
-        "extreme": clamp_tier(DCA_EXTREME_PCT),
-        "deep": clamp_tier(DCA_DEEP_PCT),
-        "moderate": clamp_tier(DCA_MODERATE_PCT),
-        "watch": clamp_tier(DCA_WATCH_PCT),
-    }
-
     def clamp_year_tier(base):
         return max(YEAR_TIER_ABS_FLOOR_PCT, min(YEAR_TIER_ABS_CEIL_PCT, base * vol_scale))
-
-    year_tiers = {
-        "extreme": clamp_year_tier(DCA_YEAR_EXTREME_PCT),
-        "deep": clamp_year_tier(DCA_YEAR_DEEP_PCT),
-        "moderate": clamp_year_tier(DCA_YEAR_MODERATE_PCT),
-    }
 
     return {
         "rsi": rsi_series[-1] if rsi_series else None,
         "rsiOversoldThreshold": rsi_oversold_threshold,
         "rsiOverboughtThreshold": rsi_overbought_threshold,
         "avgDailyMove": avg_daily_move,
-        "gapAvgDailyMove": gap_avg_daily_move,
         "nearLowThresholdPct": near_low_threshold_pct,
-        "athTiers": ath_tiers,
-        "yearTiers": year_tiers,
+        "athTiers": {
+            "extreme": clamp_tier(DCA_EXTREME_PCT), "deep": clamp_tier(DCA_DEEP_PCT),
+            "moderate": clamp_tier(DCA_MODERATE_PCT), "watch": clamp_tier(DCA_WATCH_PCT),
+        },
+        "yearTiers": {
+            "extreme": clamp_year_tier(DCA_YEAR_EXTREME_PCT), "deep": clamp_year_tier(DCA_YEAR_DEEP_PCT),
+            "moderate": clamp_year_tier(DCA_YEAR_MODERATE_PCT),
+        },
         "emaLong": ema_long_series[-1] if ema_long_series else None,
         "rollingLow": rolling_low,
-        "rollingLowDaysAgo": (len(dip_window) - rolling_low_index) if rolling_low_index >= 0 else None,
+        "rollingLowDaysAgo": len(dip_window) - dip_window.index(rolling_low),
         "rollingHigh": rolling_high,
-        "rollingHighDaysAgo": (len(dip_window) - rolling_high_index) if rolling_high_index >= 0 else None,
+        "rollingHighDaysAgo": len(dip_window) - dip_window.index(rolling_high),
         "rollingLowWindowDays": len(dip_window),
-        "rollingExtremesSource": "closes",
         "closes": closes,
-        "schemaVersion": TA_SCHEMA_VERSION,
-        "timestamp": time.time() * 1000,
     }
+
+def apply_range_extremes(ta, closes, highs, lows, vol_med_usd):
+    """Exact 90d / 180d / 365d extremes from the daily candle highs and lows (same as the HTML tool)."""
+    ta["volMedUsd"] = vol_med_usd
+
+    def ext_at(arr, n, is_high):
+        s = arr[-n:]
+        v = max(s) if is_high else min(s)
+        return v, s[::-1].index(v) + 1  # days ago of the LAST occurrence
+
+    if len(highs) == len(closes) and len(lows) == len(closes):
+        def win(n):
+            (h, hd), (l, ld) = ext_at(highs, n, True), ext_at(lows, n, False)
+            return {"high": h, "highDaysAgo": hd, "low": l, "lowDaysAgo": ld}
+        w90 = win(DCA_DIP_WINDOW_DAYS)
+        ta.update(rollingHigh=w90["high"], rollingHighDaysAgo=w90["highDaysAgo"],
+                  rollingLow=w90["low"], rollingLowDaysAgo=w90["lowDaysAgo"])
+        ta["win180Ext"], ta["year"] = win(180), win(YEAR_HIGH_DAYS)
+        return ta
+    w = closes[-YEAR_HIGH_DAYS:]
+    y_hi, y_lo = max(w), min(w)
+    ta["year"] = {"high": y_hi, "highDaysAgo": len(w) - w.index(y_hi), "low": y_lo, "lowDaysAgo": len(w) - w.index(y_lo)}
+    return ta
 
 def audit_ta(ta):
     if not ta:
         return True
-    ath_tiers = ta.get("athTiers") or {}
-    year_tiers = ta.get("yearTiers") or {}
+    ath_tiers, year_tiers = ta.get("athTiers") or {}, ta.get("yearTiers") or {}
     fields = [
         ta.get("rsi"), ta.get("emaLong"), ta.get("rollingLow"), ta.get("rollingHigh"),
         ta.get("rsiOversoldThreshold"), ta.get("rsiOverboughtThreshold"),
-        ta.get("nearLowThresholdPct"), ta.get("gapAvgDailyMove"),
+        ta.get("nearLowThresholdPct"), ta.get("avgDailyMove"),
         ath_tiers.get("extreme"), ath_tiers.get("deep"), ath_tiers.get("moderate"), ath_tiers.get("watch"),
         year_tiers.get("extreme"), year_tiers.get("deep"), year_tiers.get("moderate"),
     ]
-    for v in fields:
-        if v is not None and not math.isfinite(v):
-            return False
-    return True
+    return all(v is None or math.isfinite(v) for v in fields)
 
-def days_since(date_str):
-    if not date_str:
+def build_ta(series, rate):
+    """ONE function turning a cached USDT daily series into the INR indicator set used by every signal. The cache
+    holds USDT values; converting at the current effective rate on each run means a changed USDT/INR rate can
+    never leave stale-rate INR figures behind (the HTML tool rescales its caches for the same reason)."""
+    if not series or not (rate and rate > 0):
         return None
+    closes = [c * rate for c in series["closesUsd"]]
+    ta = compute_ta_from_closes(closes)
+    if not ta or not audit_ta(ta):
+        return None
+    ta["closesEndTs"] = series.get("closesEndTs")
+    apply_range_extremes(ta, closes, [h * rate for h in series["highsUsd"]], [l * rate for l in series["lowsUsd"]],
+                         series.get("volMedUsd"))
+    return ta
+
+# ── Data fetch: FX ────────────────────────────────────────────────
+def _fetch_json(url, timeout=7):
     try:
-        then = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
-    except Exception:
-        return None
-    return max(0, round((datetime.now(timezone.utc) - then).total_seconds() / 86400))
-
-def days_since_ts(ts_ms):
-    if ts_ms is None:
-        return None
-    then = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc)
-    return max(0, round((datetime.now(timezone.utc) - then).total_seconds() / 86400))
-
-# ── Data fetch ────────────────────────────────────────────────────
-def fetch_ta_history(coin_id):
-    global _LAST_HTTP_ERR
-    _LAST_HTTP_ERR = None
-    try:
-        r = requests.get(
-            f"{API_BASE}/coins/{coin_id}/market_chart",
-            params={"vs_currency": "inr", "days": TA_HISTORY_DAYS, "interval": "daily", "x_cg_demo_api_key": API_KEY},
-            timeout=10,
-        )
-        r.raise_for_status()
-        points = [p for p in r.json().get("prices", []) if p and p[1] is not None]
-        if not points:
-            _LAST_HTTP_ERR = "empty history"
-            return None
-        last_date = datetime.fromtimestamp(points[-1][0] / 1000, tz=timezone.utc).strftime("%Y-%m-%d")
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        usable = points[:-1] if last_date == today else points
-        if not usable:
-            _LAST_HTTP_ERR = "empty history"
-            return None
-        return [p[1] for p in usable], usable[-1][0]
-    except requests.HTTPError as e:
-        code = e.response.status_code if e.response is not None else "HTTP"
-        _LAST_HTTP_ERR = f"HTTP_ERROR:{code}"
-        print(f"TA fetch failed for {coin_id}: {_LAST_HTTP_ERR}")
-        return None
-    except Exception as e:
-        _LAST_HTTP_ERR = str(e)
-        print(f"TA fetch failed for {coin_id}: {e}")
-        return None
-
-def _get_json(url, params):
-    global _LAST_HTTP_ERR
-    _LAST_HTTP_ERR = None
-    try:
-        r = requests.get(url, params=params, timeout=10)
+        r = requests.get(url, timeout=timeout)
         r.raise_for_status()
         return r.json()
-    except requests.HTTPError as e:
-        code = e.response.status_code if e.response is not None else "HTTP"
-        _LAST_HTTP_ERR = f"HTTP_ERROR:{code}"
-        print(f"Fetch failed {url}: {_LAST_HTTP_ERR}")
-        return None
     except Exception as e:
-        _LAST_HTTP_ERR = str(e)
         print(f"Fetch failed {url}: {e}")
         return None
 
-def fetch_range_extremes(coin_id):
-    global _LAST_HTTP_ERR
-    DAY = 86400000
-    BUCKET = 4 * DAY
-    now = time.time() * 1000
-    cutoff90 = now - DCA_DIP_WINDOW_DAYS * DAY
-    cutoff_year = now - YEAR_HIGH_DAYS * DAY
-
-    ohlc = _get_json(f"{API_BASE}/coins/{coin_id}/ohlc",
-                     {"vs_currency": "inr", "days": YEAR_HIGH_DAYS, "x_cg_demo_api_key": API_KEY})
-    ohlc_err = _LAST_HTTP_ERR
-    time.sleep(0.5)
-    hourly = _get_json(f"{API_BASE}/coins/{coin_id}/market_chart",
-                       {"vs_currency": "inr", "days": DCA_DIP_WINDOW_DAYS, "x_cg_demo_api_key": API_KEY})
-    if _LAST_HTTP_ERR is None and ohlc_err is not None:
-        _LAST_HTTP_ERR = ohlc_err
-
-    slots = {"d90High": None, "d90Low": None, "yHigh": None, "yLow": None}
-
-    def take(key, val, ts, src, is_high):
-        if val is None or ts is None or val != val:
-            return
-        cur = slots[key]
-        if cur is None or (val > cur["val"] if is_high else val < cur["val"]):
-            slots[key] = {"val": val, "ts": ts, "src": src}
-
-    any_data = False
-    if isinstance(ohlc, list):
-        for c in ohlc:
-            if not isinstance(c, list) or len(c) < 5:
-                continue
-            ts, high, low = c[0], c[2], c[3]
-            if ts is None or ts < cutoff_year:
-                continue
-            any_data = True
-            take("yHigh", high, ts, "ohlc", True)
-            take("yLow", low, ts, "ohlc", False)
-            if ts >= cutoff90 + BUCKET:
-                take("d90High", high, ts, "ohlc", True)
-                take("d90Low", low, ts, "ohlc", False)
-
-    pts = hourly.get("prices") if isinstance(hourly, dict) else None
-    if isinstance(pts, list):
-        for pt in pts:
-            if not isinstance(pt, list) or len(pt) < 2 or pt[0] < cutoff90:
-                continue
-            any_data = True
-            take("d90High", pt[1], pt[0], "hourly", True)
-            take("d90Low", pt[1], pt[0], "hourly", False)
-            take("yHigh", pt[1], pt[0], "hourly", True)
-            take("yLow", pt[1], pt[0], "hourly", False)
-
-        REFINE_TOL = 0.015
-        for sl in slots.values():
-            if not sl or sl["src"] != "ohlc":
-                continue
-            best, best_diff = None, float("inf")
-            for pt in pts:
-                if not isinstance(pt, list) or len(pt) < 2 or abs(pt[0] - sl["ts"]) > BUCKET:
-                    continue
-                diff = abs(pt[1] - sl["val"])
-                if diff < best_diff:
-                    best_diff, best = diff, pt
-            if best is not None and sl["val"] > 0 and best_diff / sl["val"] <= REFINE_TOL:
-                sl["ts"], sl["src"] = best[0], "hourly"
-
-    return slots if any_data else None
-
-def apply_range_extremes(ta, closes, ext):
-    ta["rollingHighSrc"] = ta["rollingLowSrc"] = "closes"
-    w = closes[-YEAR_HIGH_DAYS:]
-    y_hi, y_lo = max(w), min(w)
-    ta["year"] = {
-        "high": y_hi, "highDaysAgo": len(w) - w.index(y_hi), "highSrc": "closes",
-        "low": y_lo, "lowDaysAgo": len(w) - w.index(y_lo), "lowSrc": "closes",
-    }
-    if ext:
-        def d_ago(ts, cap):
-            return min(days_since_ts(ts), cap)
-        h90, l90, yh, yl = ext["d90High"], ext["d90Low"], ext["yHigh"], ext["yLow"]
-        if h90 and h90["val"] > ta["rollingHigh"]:
-            ta["rollingHigh"], ta["rollingHighDaysAgo"], ta["rollingHighSrc"] = h90["val"], d_ago(h90["ts"], DCA_DIP_WINDOW_DAYS), h90["src"]
-        if l90 and l90["val"] < ta["rollingLow"]:
-            ta["rollingLow"], ta["rollingLowDaysAgo"], ta["rollingLowSrc"] = l90["val"], d_ago(l90["ts"], DCA_DIP_WINDOW_DAYS), l90["src"]
-        if yh and yh["val"] > ta["year"]["high"]:
-            ta["year"].update(high=yh["val"], highDaysAgo=d_ago(yh["ts"], YEAR_HIGH_DAYS), highSrc=yh["src"])
-        if yl and yl["val"] < ta["year"]["low"]:
-            ta["year"].update(low=yl["val"], lowDaysAgo=d_ago(yl["ts"], YEAR_HIGH_DAYS), lowSrc=yl["src"])
-        srcs = [ta["rollingHighSrc"], ta["rollingLowSrc"]]
-        ta["rollingExtremesSource"] = "ohlc" if "ohlc" in srcs else ("hourly" if "hourly" in srcs else "closes")
+def resolve_fx(state):
+    """(effective USDT/INR rate, source). Exchange reading (Crypto-tools JSON) when reachable and plausible vs the
+    bank rate; otherwise bank rate x the last good multiplier; otherwise the last stored rate."""
+    fx = state.setdefault("fx", {})
+    bank = None
+    for url, pick in BANK_FX_SOURCES:
+        j = _fetch_json(url, 5)
+        v = _num(pick(j)) if isinstance(j, dict) else None
+        if v and v > 0:
+            bank = v
+            break
+    j = _fetch_json(f"{USDT_INR_JSON_URL}?_={int(time.time())}")
+    reading = _num(j.get("usdtInr")) if isinstance(j, dict) else None
+    ref_bank = bank or fx.get("bank")
+    if reading and reading > 0 and ref_bank and FX_PLAUSIBLE_RATIO[0] <= reading / ref_bank <= FX_PLAUSIBLE_RATIO[1]:
+        rate, source, mult = reading, "exchange", reading / ref_bank
+    elif bank:
+        rate, source, mult = bank * (fx.get("multiplier") or 1), "bank", fx.get("multiplier")
+    elif fx.get("rate"):
+        return fx["rate"], "stored"
     else:
-        ta["rollingExtremesSource"] = "closes"
-    ta["schemaVersion"] = TA_SCHEMA_VERSION
-    return ta
+        return None, None
+    # The stored figures are only a fallback for a run where both FX feeds are down, so they are rewritten on a
+    # meaningful move only (otherwise state.json would be committed on every run as the rate ticks).
+    if mult and ref_bank and (not fx.get("rate") or abs(rate / fx["rate"] - 1) >= 0.005):
+        fx.update(rate=round(rate, 2), bank=round(ref_bank, 2), multiplier=round(mult, 4))
+    return rate, source
 
-def normalize_market_row(coin):
-    return {
-        "total_volume": coin.get("total_volume"),
-        "market_cap": coin.get("market_cap"),
-        "market_cap_rank": coin.get("market_cap_rank"),
-        "ath": coin.get("ath"),
-        "ath_change_percentage": coin.get("ath_change_percentage"),
-        "ath_date": coin.get("ath_date"),
-        "atl": coin.get("atl"),
-        "atl_date": coin.get("atl_date"),
-        "current_price": coin.get("current_price"),
-        "high_24h": coin.get("high_24h"),
-        "low_24h": coin.get("low_24h"),
-        "change_24h": coin.get("price_change_percentage_24h"),
-        "change_7d": coin.get("price_change_percentage_7d_in_currency"),
-        "change_30d": coin.get("price_change_percentage_30d_in_currency"),
+# ── Data fetch: Binance ───────────────────────────────────────────
+_active_host = BINANCE_HOSTS[0]
+_last_call_at = 0.0
+
+def binance_get(path, params=None, timeout=10):
+    """GET on Binance market data, trying each host in turn. A rate-limit/ban (429/418) never fails over: the IP
+    limit is shared. HTTP 400 (bad symbol) is the same on every host, so it stops there too."""
+    global _LAST_HTTP_ERR, _active_host, _last_call_at
+    _LAST_HTTP_ERR = None
+    gap = HEAVY_CALL_GAP_S - (time.time() - _last_call_at)
+    if gap > 0:
+        time.sleep(gap)
+    _last_call_at = time.time()
+    for host in [_active_host] + [h for h in BINANCE_HOSTS if h != _active_host]:
+        try:
+            r = requests.get(host + path, params=params, timeout=timeout)
+        except Exception as e:
+            _LAST_HTTP_ERR = str(e)
+            continue
+        if r.status_code in (429, 418, 400):
+            _LAST_HTTP_ERR = f"HTTP_ERROR:{r.status_code}"
+            return None
+        if not r.ok:
+            _LAST_HTTP_ERR = f"HTTP_ERROR:{r.status_code}"
+            continue
+        try:
+            data = r.json()
+        except ValueError:
+            _LAST_HTTP_ERR = "bad JSON"
+            continue
+        _active_host = host
+        return data
+    print(f"Binance fetch failed {path}: {_LAST_HTTP_ERR}")
+    return None
+
+def fetch_exchange_info():
+    """{symbol: {"base", "tick"}} for every TRADING USDT spot pair (tick size feeds the spread-in-ticks check)."""
+    data = binance_get("/api/v3/exchangeInfo", {"permissions": "SPOT"}, 20)
+    if not isinstance(data, dict):
+        return None
+    out = {}
+    for s in data.get("symbols") or []:
+        if s.get("status") != "TRADING" or s.get("quoteAsset") != "USDT" or not s.get("isSpotTradingAllowed"):
+            continue
+        pf = next((f for f in s.get("filters") or [] if f.get("filterType") == "PRICE_FILTER"), None)
+        tick = _num(pf.get("tickSize")) if pf else None
+        out[s["symbol"]] = {"base": s.get("baseAsset"), "tick": tick if tick and tick > 0 else None}
+    return out
+
+def fetch_tickers(symbols=None):
+    """24hr tickers (price, 24h range, quote volume, best bid/ask). symbols=None -> every pair."""
+    global _LAST_HTTP_ERR
+    if symbols is None:
+        data = binance_get("/api/v3/ticker/24hr", None, 20)
+        return data if isinstance(data, list) else None
+    out, failed = [], False
+    for i in range(0, len(symbols), 90):
+        chunk = symbols[i:i + 90]
+        data = binance_get("/api/v3/ticker/24hr", {"symbols": json.dumps(chunk, separators=(",", ":"))})
+        if data is None and _LAST_HTTP_ERR == "HTTP_ERROR:400" and len(chunk) > 1:
+            # one invalid/delisted symbol makes Binance reject the whole batch: isolate per symbol
+            data = []
+            for sym in chunk:
+                one = binance_get("/api/v3/ticker/24hr", {"symbol": sym})
+                if isinstance(one, dict) and one.get("symbol"):
+                    data.append(one)
+                elif _LAST_HTTP_ERR in ("HTTP_ERROR:429", "HTTP_ERROR:418"):
+                    return None
+        if isinstance(data, dict):
+            data = [data]
+        if not isinstance(data, list):
+            failed = True
+            continue
+        out.extend(data)
+    return None if (failed and not out) else out
+
+def normalize_ticker(t, rate, tick_size=None):
+    """One normaliser for portfolio coins AND Discover candidates (as in the HTML tool). INR = USDT x rate."""
+    def inr(k):
+        v = _num(t.get(k))
+        return v * rate if v is not None else None
+    md = {
+        "symbol": t.get("symbol"),
+        "current_price": inr("lastPrice"), "low_24h": inr("lowPrice"), "high_24h": inr("highPrice"),
+        "total_volume": inr("quoteVolume"), "change_24h": _num(t.get("priceChangePercent")),
+        "spreadPct": None, "spreadTicks": None, "deadBook": False,
+        "ath": None, "ath_change_percentage": None, "ath_date": None, "atl": None, "atl_date": None,
         "notFound": False,
-        "symbol": str(coin.get("symbol") or "").upper(),
-        "name": str(coin.get("name") or coin.get("id") or ""),
+    }
+    bid, ask = _num(t.get("bidPrice")), _num(t.get("askPrice"))
+    if bid is not None and ask is not None:
+        if not (bid > 0) or not (ask > 0) or ask < bid:
+            md["deadBook"] = True
+        else:
+            mid = (bid + ask) / 2
+            md["spreadPct"] = (ask - bid) / mid * 100 if mid > 0 else None
+            md["spreadTicks"] = math.floor((ask - bid) / tick_size + 0.5) if tick_size else None
+    return md
+
+def fetch_binance_ath_atl(symbol):
+    """All-time high/low in USDT from Binance's weekly history, refined to the exact day (same as the HTML tool)."""
+    wk = binance_get("/api/v3/klines", {"symbol": symbol, "interval": "1w", "limit": 1000})
+    if not isinstance(wk, list) or not wk:
+        return None
+    max_k = min_k = wk[0]
+    for k in wk:
+        if float(k[2]) > float(max_k[2]):
+            max_k = k
+        if float(k[3]) < float(min_k[3]):
+            min_k = k
+    exact_high, exact_low = max_k, min_k
+    d_high = binance_get("/api/v3/klines", {"symbol": symbol, "interval": "1d", "startTime": max_k[0], "endTime": max_k[6], "limit": 10})
+    d_low = binance_get("/api/v3/klines", {"symbol": symbol, "interval": "1d", "startTime": min_k[0], "endTime": min_k[6], "limit": 10})
+    for k in d_high if isinstance(d_high, list) else []:
+        if float(k[2]) >= float(exact_high[2]):
+            exact_high = k
+    for k in d_low if isinstance(d_low, list) else []:
+        if float(k[3]) <= float(exact_low[3]):
+            exact_low = k
+    day = lambda ms: datetime.fromtimestamp(ms / 1000, tz=timezone.utc).strftime("%Y-%m-%d")
+    return {
+        "binAthUsd": float(exact_high[2]), "binAthDate": day(exact_high[0]),
+        "binAtlUsd": float(exact_low[3]), "binAtlDate": day(exact_low[0]),
+        "binListDate": day(wk[0][0]), "fetchedAt": time.time() * 1000,
     }
 
-def fetch_market_data(ids):
-    try:
-        r = requests.get(
-            f"{API_BASE}/coins/markets",
-            params={
-                "vs_currency": "inr", "ids": ",".join(ids), "order": "market_cap_desc",
-                "per_page": 250, "page": 1, "sparkline": "false",
-                "price_change_percentage": "7d,30d", "x_cg_demo_api_key": API_KEY,
-            },
-            timeout=10,
-        )
-        r.raise_for_status()
-        data = r.json()
-        market, found = {}, set()
-        for coin in data:
-            found.add(coin["id"])
-            market[coin["id"]] = normalize_market_row(coin)
-        for cid in ids:
-            if cid not in found:
-                market[cid] = {"notFound": True}
-        return market
-    except Exception as e:
-        print(f"Market data fetch failed: {e}")
-        return None
+def ensure_ath_atl(ath_cache, symbol, series):
+    """Fetch/refresh one coin's ATH/ATL entry in `ath_cache` when missing, older than a week, or beaten by a fresh
+    365-day daily extreme in `series`. Used for the portfolio (persisted cache) and Discover (throwaway dict)."""
+    e = ath_cache.get(symbol)
+    stale = (not e or not e.get("fetchedAt") or time.time() * 1000 - e["fetchedAt"] > ATH_TTL_S * 1000)
+    if not stale and series:
+        y_hi, y_lo = max(series["highsUsd"][-YEAR_HIGH_DAYS:]), min(series["lowsUsd"][-YEAR_HIGH_DAYS:])
+        stale = (y_lo < e["binAtlUsd"] * (1 - ATH_REFRESH_TOL)) or (y_hi > e["binAthUsd"] * (1 + ATH_REFRESH_TOL))
+    if stale:
+        fresh = fetch_binance_ath_atl(symbol)
+        if fresh:
+            ath_cache[symbol] = fresh
+    return ath_cache.get(symbol)
 
-def fetch_market_universe():
-    try:
-        r = requests.get(
-            f"{API_BASE}/coins/markets",
-            params={
-                "vs_currency": "inr", "order": "market_cap_desc",
-                "per_page": DISCOVERY_MARKET_LIMIT, "page": 1, "sparkline": "false",
-                "price_change_percentage": "7d,30d", "x_cg_demo_api_key": API_KEY,
-            },
-            timeout=15,
-        )
-        r.raise_for_status()
-        data = r.json()
-        market = {}
-        for coin in data:
-            cid = coin.get("id")
-            if cid:
-                market[cid] = normalize_market_row(coin)
-        return market
-    except Exception as e:
-        print(f"Market-universe discovery fetch failed: {e}")
+def resolve_ath_atl(entry, cur, rate):
+    """ATH/ATL in INR at the current effective rate, widened by the live price (a new extreme is dated today)."""
+    now_iso = datetime.now(timezone.utc).isoformat()
+    ath = ath_date = atl = atl_date = None
+    if entry and (entry.get("binAthUsd") or 0) > 0:
+        ath, ath_date = entry["binAthUsd"] * rate, entry["binAthDate"]
+    if ath is not None and cur is not None and cur > ath:
+        ath, ath_date = cur, now_iso
+    if entry and (entry.get("binAtlUsd") or 0) > 0:
+        atl, atl_date = entry["binAtlUsd"] * rate, entry["binAtlDate"]
+    if atl is not None and cur is not None and cur > 0 and cur < atl:
+        atl, atl_date = cur, now_iso
+    return {
+        "ath": ath, "ath_date": ath_date, "atl": atl, "atl_date": atl_date,
+        "ath_change_percentage": (cur - ath) / ath * 100 if (ath and ath > 0 and cur is not None) else None,
+    }
+
+def fetch_ta_history(symbol):
+    """Daily USDT series from Binance 1d klines (today's unfinished candle dropped). None on failure."""
+    global _LAST_HTTP_ERR
+    ks = binance_get("/api/v3/klines", {"symbol": symbol, "interval": "1d", "limit": TA_HISTORY_DAYS + 1})
+    if not isinstance(ks, list) or not ks:
+        _LAST_HTTP_ERR = _LAST_HTTP_ERR or "empty history"
         return None
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    last_is_today = datetime.fromtimestamp(ks[-1][0] / 1000, tz=timezone.utc).strftime("%Y-%m-%d") == today
+    usable = ks[:-1] if last_is_today else ks
+    if not usable:
+        _LAST_HTTP_ERR = "empty history"
+        return None
+    vols = sorted(v for v in (_num(k[7]) for k in usable[-VOL_MEDIAN_DAYS:]) if v is not None and v >= 0)
+    r10 = lambda v: float(f"{float(v):.10g}")  # 10 significant digits keeps state.json small
+    return {
+        "closesUsd": [r10(k[4]) for k in usable],
+        "highsUsd": [r10(k[2]) for k in usable],
+        "lowsUsd": [r10(k[3]) for k in usable],
+        "volMedUsd": vols[len(vols) // 2] if len(vols) >= 10 else None,  # coin's own 30-day median daily volume
+        "closesEndTs": usable[-1][0],
+    }
 
 # ── Signal engine (1:1 with Portfolio_Tracker.html) ───────────────
 def year_high_drawdown(closes, cur, high_24h, low_24h, ath_value, ath_date, atl_value, atl_date, stored):
+    """Trailing-365d high/low (daily closes widened by the stored candle extremes, the all-time extremes when they
+    fall inside the year, and the live price) and the current drawdown from that high."""
     if not closes or len(closes) < YEAR_HIGH_DAYS - 20 or cur is None:
         return None
     w = closes[-YEAR_HIGH_DAYS:]
     high, low = max(w), min(w)
     high_days, low_days = len(w) - w.index(high), len(w) - w.index(low)
-    high_src = low_src = "closes"
-    if stored:
-        if stored.get("high") is not None and stored["high"] > high:
-            high, high_days, high_src = stored["high"], stored.get("highDaysAgo"), stored.get("highSrc") or "ohlc"
-        if stored.get("low") is not None and stored["low"] < low:
-            low, low_days, low_src = stored["low"], stored.get("lowDaysAgo"), stored.get("lowSrc") or "ohlc"
-    ds_atl = days_since(atl_date) if atl_value is not None and atl_date else None
-    if ds_atl is not None and ds_atl <= YEAR_HIGH_DAYS and atl_value <= low * 1.005:
-        low, low_days, low_src = min(low, atl_value), ds_atl, "exact"
-    ds_ath = days_since(ath_date) if ath_value is not None and ath_date else None
-    if ds_ath is not None and ds_ath <= YEAR_HIGH_DAYS and ath_value >= high * 0.995:
-        high, high_days, high_src = max(high, ath_value), ds_ath, "exact"
+    if stored and stored["high"] > high:
+        high, high_days = stored["high"], stored["highDaysAgo"]
+    if stored and stored["low"] < low:
+        low, low_days = stored["low"], stored["lowDaysAgo"]
     live_high = max(cur, high_24h) if high_24h is not None else cur
     live_low = min(cur, low_24h) if low_24h is not None else cur
+    ds_atl = days_since(atl_date) if (atl_value is not None and atl_date) else None
+    if ds_atl is not None and ds_atl <= YEAR_HIGH_DAYS and atl_value <= low * 1.005 and (atl_value <= low or abs(ds_atl - low_days) <= 5):
+        low, low_days = min(low, atl_value), ds_atl
+    ds_ath = days_since(ath_date) if (ath_value is not None and ath_date) else None
+    if ds_ath is not None and ds_ath <= YEAR_HIGH_DAYS and ath_value >= high * 0.995 and (ath_value >= high or abs(ds_ath - high_days) <= 5):
+        high, high_days = max(high, ath_value), ds_ath
     if live_high > high:
-        high, high_days, high_src = live_high, 0, "exact"
+        high, high_days = live_high, 0
     if live_low < low:
-        low, low_days, low_src = live_low, 0, "exact"
-    if not high or high <= 0 or not low or low <= 0:
+        low, low_days = live_low, 0
+    if not high or high <= 0:
         return None
-    return {
-        "high": high, "low": low, "highDaysAgo": high_days, "lowDaysAgo": low_days,
-        "highApprox": high_src == "ohlc", "lowApprox": low_src == "ohlc",
-        "pct": (cur - high) / high * 100,
-        "abovePct": (cur - low) / low * 100,
-        "rangePos": (cur - low) / (high - low) * 100 if high > low else None,
-    }
+    return {"high": high, "low": low, "highDaysAgo": high_days, "lowDaysAgo": low_days, "pct": (cur - high) / high * 100}
 
-EXTREME_TOL = 5e-4
-
-def rsi_at_extreme(series, days_ago, is_live):
+def rsi_at_extreme(series, days_ago, is_live, stale_gap_days=0):
+    """RSI on the day an extreme was set. `series` is aligned with closes + [live], so index len-1-k is k days ago.
+    If the daily candles trail yesterday (stale_gap_days > 0) a past RSI is unavailable rather than read off the
+    wrong day."""
     if not series or days_ago is None:
         return None
     n = len(series)
     if is_live or days_ago <= 0:
         return series[n - 1]
+    if stale_gap_days > 0:
+        return None
     idx = n - 1 - days_ago
     if idx < 0:
         return None
     v = series[idx]
     return None if v is None or v != v else v
 
-def refine_extreme_day(closes, days_ago, known_price):
-    if not closes or days_ago is None or known_price is None:
-        return days_ago
-    best_k, best_diff = days_ago, float("inf")
-    lo, hi = max(1, days_ago - 4), min(len(closes), days_ago + 4, DCA_DIP_WINDOW_DAYS)
-    for k in range(lo, hi + 1):
-        c = closes[len(closes) - k]
-        if c is None or c != c:
-            continue
-        d = abs(c - known_price)
-        if d < best_diff:
-            best_diff, best_k = d, k
-    return best_k
+def pick_ref_window(cands, thr, is_low):
+    """Shortest window whose extreme was set at a qualifying RSI; else the window closest to qualifying
+    (never loosens the threshold); else the first candidate."""
+    lst = [c for c in cands if c]
+    valid = [c for c in lst if c.get("rsi") is not None and c["rsi"] == c["rsi"]]
+    hit = next((c for c in valid if (c["rsi"] <= thr if is_low else c["rsi"] >= thr)), None)
+    if hit:
+        return hit
+    best = None
+    for c in valid:
+        if best is None or (c["rsi"] < best["rsi"] if is_low else c["rsi"] > best["rsi"]):
+            best = c
+    return best or (lst[0] if lst else None)
 
-def classify_holding(coin_id, md, item, ta, macro_ta, dca_log):
+def classify_holding(coin_id, md, item, ta, macro_ta, dca_log, rate):
+    na = {"signal": "NA", "strength": 0, "cmp": None}
     if md is None:
-        return {"signal": "NA", "strength": 0, "reason": "No market data yet.", "cmp": None}
+        return {**na, "reason": "No market data yet for this coin."}
     if md.get("notFound"):
-        return {"signal": "NA", "strength": 0, "reason": "Not found in latest CoinGecko data — may be delisted.", "cmp": None}
+        return {**na, "reason": "Not found in the latest Binance market data — it may have been delisted, or the symbol no longer matches. Verify manually."}
 
-    volume, mcap, rank = md.get("total_volume"), md.get("market_cap"), md.get("market_cap_rank")
-    cur = md.get("current_price")
-    high_24h, low_24h = md.get("high_24h"), md.get("low_24h")
-    md_ath, md_atl = md.get("ath"), md.get("atl")
-    ath_value = max(md_ath, cur) if (md_ath is not None and cur is not None) else md_ath
-    ath_pct = (md.get("ath_change_percentage") if ath_value == md_ath else 0) if (ath_value is not None and cur is not None) else md.get("ath_change_percentage")
-    atl_value = min(md_atl, cur) if (md_atl is not None and cur is not None) else md_atl
-    atl_date = md.get("atl_date")
-    ath_date = md.get("ath_date")
+    volume, cur = md.get("total_volume"), md.get("current_price")
+    low_24h, high_24h = md.get("low_24h"), md.get("high_24h")
     target = item.get("target")
 
-    own_ret = calc_return_pct(ta.get("closes") if ta else None, REL_STRENGTH_WINDOW_DAYS)
-    btc_ret = calc_return_pct(macro_ta.get("closes") if macro_ta else None, REL_STRENGTH_WINDOW_DAYS)
-    rel_strength = (own_ret - btc_ret) if (own_ret is not None and btc_ret is not None) else None
+    def fold(rec, is_low):
+        """All-time extreme widened by the live price AND the 24h range (a real traded price)."""
+        if rec is None:
+            return None, False
+        c = [x for x in (cur, low_24h if is_low else high_24h) if x is not None and math.isfinite(x)]
+        v = min([rec] + c) if is_low else max([rec] + c)
+        return v, v != rec
 
-    live_closes = (ta["closes"] + [cur]) if (ta and ta.get("closes") and cur is not None) else (ta.get("closes") if ta else None)
+    ath_value, is_live_ath = fold(md.get("ath"), False)
+    atl_value, is_live_atl = fold(md.get("atl"), True)
+    ath_pct = (cur - ath_value) / ath_value * 100 if (ath_value is not None and ath_value > 0 and cur is not None) else md.get("ath_change_percentage")
+    ath_date, atl_date = md.get("ath_date"), md.get("atl_date")
+
+    closes_all = ta.get("closes") if ta else None
+    own_ret = calc_return_pct(closes_all, REL_STRENGTH_WINDOW_DAYS)
+    btc_ret = calc_return_pct(macro_ta.get("closes") if macro_ta else None, REL_STRENGTH_WINDOW_DAYS)
+    same_candle_clock = bool(ta and macro_ta and ta.get("closesEndTs") is not None and ta["closesEndTs"] == macro_ta.get("closesEndTs"))
+    rel_strength = (own_ret - btc_ret) if (coin_id != MACRO_ID and own_ret is not None and btc_ret is not None and same_candle_clock) else None
+
+    # RSI / EMAs are recomputed with the live price appended, so they share a clock with the near-low check
+    live_closes = (closes_all + [cur]) if (closes_all and cur is not None) else closes_all
     live_rsi_series = calc_rsi_series(live_closes, RSI_PERIOD) if live_closes else []
     live_rsi = live_rsi_series[-1] if live_rsi_series else (ta.get("rsi") if ta else None)
     live_ema_long_series = calc_ema_series(live_closes, EMA_TREND_LONG) if live_closes else []
@@ -744,102 +802,87 @@ def classify_holding(coin_id, md, item, ta, macro_ta, dca_log):
     ema_fl = calc_ema_series(live_closes, EMA_TREND_FAST_LONG) if live_closes else []
     sentiment = None
     if ema_fs and ema_fl:
-        a, b = ema_fs[-1], ema_fl[-1]
-        sentiment = "Bullish" if a > b else ("Bearish" if a < b else "Mixed")
+        sentiment = "Bullish" if ema_fs[-1] > ema_fl[-1] else ("Bearish" if ema_fs[-1] < ema_fl[-1] else "Mixed")
 
-    no_trading_data = volume is None or mcap is None
-    zero_mcap = (not no_trading_data) and mcap == 0
-    vol_mcap_ratio = (volume / mcap) if (not no_trading_data and mcap > 0) else None
-    negligible_volume = (not no_trading_data) and mcap < MICROCAP_FLOOR and volume < ABSOLUTE_DEAD_VOLUME
-    dead_liquidity = no_trading_data or volume == 0 or zero_mcap or negligible_volume or (vol_mcap_ratio is not None and vol_mcap_ratio < LIQUIDITY_DEAD_RATIO)
-    microcap = mcap is not None and mcap < MICROCAP_FLOOR
-    poor_rank = rank is None or rank > RANK_CAUTION
-    at_risk = (not dead_liquidity) and microcap and poor_rank
+    # Liquidity, all from Binance: 24h volume vs own 30-day median, absolute thinness, order-book spread
+    vol_med_inr = ta["volMedUsd"] * rate if (ta and (ta.get("volMedUsd") or 0) > 0 and rate and rate > 0) else None
+    no_trading_data = volume is None
+    vol_rel = volume / vol_med_inr if (not no_trading_data and vol_med_inr and vol_med_inr > 0) else None
+    thin_volume = (not no_trading_data) and rate > 0 and volume < THIN_VOLUME_USDT * rate
+    negligible_volume = (not no_trading_data) and volume < ABSOLUTE_DEAD_VOLUME
+    vol_below_ceil = (not no_trading_data) and (not rate > 0 or volume < VOLUME_CEIL_USDT * rate)
+    base_dead = no_trading_data or volume == 0 or negligible_volume or (vol_rel is not None and vol_rel < VOLUME_COLLAPSE_RATIO and vol_below_ceil)
+    base_at_risk = (not base_dead) and (thin_volume or (vol_rel is not None and vol_rel < VOLUME_FADING_RATIO and vol_below_ceil))
+    spread_pct, spread_ticks = md.get("spreadPct"), md.get("spreadTicks")
+    spread_tick_ok = spread_ticks is None or spread_ticks > SPREAD_MIN_TICKS
+    # One REST observation counts as a confirmed streak in the HTML tool (SPREAD_FLICKER_STREAK step), so no streak state is kept here
+    spread_dead = md.get("deadBook") is True or (spread_pct is not None and spread_pct >= SPREAD_EXIT_PCT and spread_tick_ok)
+    spread_at_risk = (not spread_dead) and spread_pct is not None and spread_pct >= SPREAD_RISK_PCT and spread_tick_ok
+    dead_liquidity = base_dead or spread_dead
+    at_risk = (not dead_liquidity) and (base_at_risk or spread_at_risk)
+    spread_txt_core = f"{spread_pct:.2f}%{'' if spread_ticks is None else f', {spread_ticks} ticks'}" if spread_pct is not None else ""
 
     depth = abs(ath_pct) if ath_pct is not None else None
     ath_tiers = (ta or {}).get("athTiers") or {"extreme": DCA_EXTREME_PCT, "deep": DCA_DEEP_PCT, "moderate": DCA_MODERATE_PCT, "watch": DCA_WATCH_PCT}
     year_tiers = (ta or {}).get("yearTiers") or {"extreme": DCA_YEAR_EXTREME_PCT, "deep": DCA_YEAR_DEEP_PCT, "moderate": DCA_YEAR_MODERATE_PCT}
-    yr = year_high_drawdown(ta.get("closes") if ta else None, cur, high_24h, low_24h,
-                            ath_value, ath_date, atl_value, atl_date, (ta or {}).get("year"))
-    yr_note = f", {abs(yr['pct']):.0f}% below {YEAR_HIGH_DAYS}d high" if yr else ""
+    yr = year_high_drawdown(closes_all, cur, high_24h, low_24h, ath_value, ath_date, atl_value, atl_date, (ta or {}).get("year"))
+    yr_note = f", {abs(yr['pct']):.2f}% below {YEAR_HIGH_DAYS}d high" if yr else ""
 
     if dead_liquidity:
-        signal, strength = "EXIT", (90 if (no_trading_data or zero_mcap) else max(60, min(95, round(100 - (vol_mcap_ratio or 0) / LIQUIDITY_DEAD_RATIO * 40))))
-        reason = "No volume/market-cap data — trading may have stopped." if no_trading_data else \
-                 "Real ₹0 market cap — likely defunct/delisted." if zero_mcap else \
-                 f"Volume negligible against a {mcap:,.0f} market cap." if negligible_volume else \
-                 f"Volume/market-cap ratio ({vol_mcap_ratio * 100:.2f}%) has dried up."
+        signal = "EXIT"
+        strength = 90 if no_trading_data else 85 if spread_dead else max(60, min(95, math.floor(100 - ((vol_rel or 0) / VOLUME_COLLAPSE_RATIO) * 40 + 0.5)))
+        if not base_dead and spread_dead:
+            reason = ("Binance orderbook has no active bid or ask — trading may be halted or delisted. Verify manually."
+                      if md.get("deadBook") else
+                      f"Binance orderbook spread ({spread_txt_core}) is severely blown out — extreme slippage/liquidity exit risk.")
+        elif no_trading_data:
+            reason = "No volume data available — trading has likely stopped. Verify manually."
+        elif negligible_volume:
+            reason = f"Volume ({fmt_inr(volume)}) is negligible. No real market to sell into."
+        else:
+            reason = f"24h volume is only {vol_rel * 100:.2f}% of its own 30-day median — trading has dried up, there may be no real market left here."
     elif at_risk:
-        signal, strength = "AT RISK", 50
-        reason = f"Micro-cap ({mcap:,.0f}, rank {rank}) with real survival risk."
+        signal, strength = "AT RISK", (55 if (spread_at_risk and not base_at_risk) else 50)
+        micro = ((f"Thin Binance volume ({fmt_inr(volume)} per 24h)" if thin_volume else f"Volume fading to {vol_rel * 100:.2f}% of its 30-day median") + " — liquidity risk") if base_at_risk else ""
+        spread = f"Wide Binance orderbook spread ({spread_txt_core}) — thin liquidity / high slippage risk" if spread_at_risk else ""
+        reason = f"{'. '.join(x for x in (micro, spread) if x)}. Not a place to add."
     elif ath_pct is not None:
         if ath_pct <= ath_tiers["moderate"] and yr is not None and yr["pct"] > year_tiers["moderate"]:
             signal, strength = "HOLD", 35
-            reason = (f"{depth:.0f}% below ATH, but only {abs(yr['pct']):.0f}% below its {YEAR_HIGH_DAYS}d high "
-                      f"(needs ≥{abs(year_tiers['moderate']):.0f}% for this coin) — no meaningful recent pullback to buy.")
+            reason = (f"{depth:.2f}% below ATH, but only {abs(yr['pct']):.2f}% below its {YEAR_HIGH_DAYS}d high "
+                      f"(needs ≥{abs(year_tiers['moderate']):.2f}% for this coin) — no meaningful recent pullback to buy.")
         elif ath_pct <= ath_tiers["extreme"] and (yr is None or yr["pct"] <= year_tiers["extreme"]):
-            signal, strength, reason = "WAIT", 20, f"{depth:.0f}% below ATH{yr_note} — extreme, but depth alone isn't a floor. Watching for a better entry."
+            signal, strength, reason = "WAIT", 30, f"{depth:.2f}% below ATH{yr_note} — extreme, but depth alone isn't a floor. Watching for a better entry."
         elif ath_pct <= ath_tiers["deep"] and (yr is None or yr["pct"] <= year_tiers["deep"]):
-            signal, strength, reason = "WAIT", 30, f"{depth:.0f}% below ATH{yr_note} — deep discount, but that alone doesn't confirm the fall has stopped."
+            signal, strength, reason = "WAIT", 25, f"{depth:.2f}% below ATH{yr_note} — deep discount, but that alone doesn't confirm the fall has stopped."
         elif ath_pct <= ath_tiers["moderate"]:
-            signal, strength, reason = "WAIT", 25, f"{depth:.0f}% below ATH{yr_note} — meaningful discount, but not yet a confirmed add."
+            signal, strength, reason = "WAIT", 20, f"{depth:.2f}% below ATH{yr_note} — meaningful discount, but not yet a confirmed add."
         else:
             signal, strength = "HOLD", 35
-            reason = (
-                f"Only {depth:.0f}% below ATH — not a deep enough discount yet."
-                if ath_pct <= ath_tiers["watch"]
-                else f"Within {depth:.0f}% of ATH — holding for your target unless an extreme blow-off triggers."
-            )
+            reason = (f"Only {depth:.2f}% below ATH — not a deep enough discount yet."
+                      if ath_pct <= ath_tiers["watch"]
+                      else f"Within {depth:.2f}% of ATH — holding for your target unless an extreme blow-off triggers.")
     else:
-        signal, strength, reason = "HOLD", 25, "No ATH data yet."
+        signal, strength, reason = "HOLD", 25, "No ATH data yet to judge discount."
 
-    closes_all = (ta or {}).get("closes")
+    # ── 90-day extremes, widened by the live price and the 24h range ──
     window90 = (ta or {}).get("rollingLowWindowDays")
-    atl_within_window = False
-    if atl_date and ta and window90 is not None:
-        ds = days_since(atl_date)
-        atl_within_window = ds is not None and ds <= window90
-
-    effective_low = None
+    atl_within_window = bool(atl_date and window90 is not None and days_since(atl_date) is not None and days_since(atl_date) <= window90)
+    ath_within_window = bool(ath_date and window90 is not None and days_since(ath_date) is not None and days_since(ath_date) <= window90)
+    effective_low = effective_high = None
     if ta and ta.get("rollingLow") is not None and cur is not None:
-        candidates = [ta["rollingLow"], cur]
-        if low_24h is not None:
-            candidates.append(low_24h)
-        if atl_within_window and atl_value is not None:
-            candidates.append(atl_value)
-        effective_low = min(candidates)
-
-    ath_within_window = False
-    if ath_date and ta and window90 is not None:
-        ds = days_since(ath_date)
-        ath_within_window = ds is not None and ds <= window90
-    effective_high = None
+        effective_low = min([ta["rollingLow"], cur] + ([low_24h] if low_24h is not None else []) + ([atl_value] if (atl_within_window and atl_value is not None) else []))
     if ta and ta.get("rollingHigh") is not None and cur is not None:
-        candidates_h = [ta["rollingHigh"], cur]
-        if high_24h is not None:
-            candidates_h.append(high_24h)
-        if ath_within_window and ath_value is not None:
-            candidates_h.append(ath_value)
-        effective_high = max(candidates_h)
+        effective_high = max([ta["rollingHigh"], cur] + ([high_24h] if high_24h is not None else []) + ([ath_value] if (ath_within_window and ath_value is not None) else []))
+    is_live_low = (effective_low is not None and (effective_low == cur or effective_low == low_24h) and (ta.get("rollingLow") is None or effective_low < ta["rollingLow"]))
+    is_live_high = (effective_high is not None and (effective_high == cur or effective_high == high_24h) and (ta.get("rollingHigh") is None or effective_high > ta["rollingHigh"]))
+    low_day_k = 0 if is_live_low else (days_since(atl_date) if (atl_within_window and atl_value is not None and effective_low == atl_value) else (ta or {}).get("rollingLowDaysAgo"))
+    high_day_k = 0 if is_live_high else (days_since(ath_date) if (ath_within_window and ath_value is not None and effective_high == ath_value) else (ta or {}).get("rollingHighDaysAgo"))
 
-    is_live_low = (effective_low is not None and cur is not None
-                   and (effective_low == cur or effective_low == low_24h)
-                   and (ta.get("rollingLow") is None or effective_low < ta["rollingLow"]))
-    atl_sets_low = atl_within_window and atl_value is not None and effective_low == atl_value
-    low_days = 0 if is_live_low else (days_since(atl_date) if atl_sets_low else (ta or {}).get("rollingLowDaysAgo"))
-    low_approx = (not is_live_low) and (not atl_sets_low) and ((ta or {}).get("rollingLowSrc") or (ta or {}).get("rollingExtremesSource")) == "ohlc"
-    low_day_k = refine_extreme_day(closes_all, low_days, effective_low) if low_approx else low_days
-    low_rsi = rsi_at_extreme(live_rsi_series, low_day_k, is_live_low)
-
-    is_live_high = (effective_high is not None and cur is not None
-                    and (effective_high == cur or effective_high == high_24h)
-                    and (ta.get("rollingHigh") is None or effective_high > ta["rollingHigh"]))
-    ath_sets_high = ath_within_window and ath_value is not None and effective_high == ath_value
-    high_days = 0 if is_live_high else (days_since(ath_date) if ath_sets_high else (ta or {}).get("rollingHighDaysAgo"))
-    high_approx = (not is_live_high) and (not ath_sets_high) and ((ta or {}).get("rollingHighSrc") or (ta or {}).get("rollingExtremesSource")) == "ohlc"
-    high_day_k = refine_extreme_day(closes_all, high_days, effective_high) if high_approx else high_days
-    high_rsi = rsi_at_extreme(live_rsi_series, high_day_k, is_live_high)
-
+    ends_ts = (ta or {}).get("closesEndTs")
+    stale_gap = max(0, (days_since_ts(ends_ts) or 0) - 1) if ends_ts else 0
+    low_rsi = rsi_at_extreme(live_rsi_series, low_day_k, is_live_low, stale_gap)
+    high_rsi = rsi_at_extreme(live_rsi_series, high_day_k, is_live_high, stale_gap)
     live_rsi_now = rsi_at_extreme(live_rsi_series, 0, True)
 
     def rsi_of(c):
@@ -848,18 +891,10 @@ def classify_holding(coin_id, md, item, ta, macro_ta, dca_log):
         k = c.get("k")
         if k is None or not closes_all or k > len(closes_all):
             return None
-        if not c.get("approx"):
-            return rsi_at_extreme(live_rsi_series, k, False)
-        best_k, best_d = None, float("inf")
-        for kk in range(max(1, k - 4), min(len(closes_all), k + 4) + 1):
-            if rsi_at_extreme(live_rsi_series, kk, False) is None:
-                continue
-            d = abs(closes_all[len(closes_all) - kk] - c["v"])
-            if d < best_d:
-                best_d, best_k = d, kk
-        return None if best_k is None else rsi_at_extreme(live_rsi_series, best_k, False)
+        return rsi_at_extreme(live_rsi_series, k, False, stale_gap)
 
     def pick_extreme(cands, is_low):
+        """A longer window only replaces a shorter one if genuinely more extreme (beyond EXTREME_TOL)."""
         best = None
         for c in cands:
             if not c or c.get("v") is None or c["v"] != c["v"]:
@@ -873,35 +908,34 @@ def classify_holding(coin_id, md, item, ta, macro_ta, dca_log):
             out["rsi"] = rsi_of(best)
         return out
 
-    eff_low_c = {"v": effective_low, "k": low_day_k, "live": is_live_low, "approx": False, "rsi": low_rsi} if effective_low is not None else None
-    eff_high_c = {"v": effective_high, "k": high_day_k, "live": is_live_high, "approx": False, "rsi": high_rsi} if effective_high is not None else None
-    atl_k = days_since(atl_date) if atl_date else None
-    ath_k = days_since(ath_date) if ath_date else None
-    is_live_atl = atl_value is not None and cur is not None and atl_value == cur and (md_atl is None or cur < md_atl)
-    is_live_ath = ath_value is not None and cur is not None and ath_value == cur and (md_ath is None or cur > md_ath)
-    atl_c = {"v": atl_value, "k": 0 if is_live_atl else atl_k, "live": is_live_atl, "approx": False} if (atl_value is not None and atl_k is not None) else None
-    ath_c = {"v": ath_value, "k": 0 if is_live_ath else ath_k, "live": is_live_ath, "approx": False} if (ath_value is not None and ath_k is not None) else None
+    eff_low_c = {"v": effective_low, "k": low_day_k, "live": is_live_low, "rsi": low_rsi} if effective_low is not None else None
+    eff_high_c = {"v": effective_high, "k": high_day_k, "live": is_live_high, "rsi": high_rsi} if effective_high is not None else None
+    atl_k, ath_k = (days_since(atl_date) if atl_date else None), (days_since(ath_date) if ath_date else None)
+    atl_c = {"v": atl_value, "k": 0 if is_live_atl else atl_k, "live": is_live_atl} if (atl_value is not None and atl_k is not None) else None
+    ath_c = {"v": ath_value, "k": 0 if is_live_ath else ath_k, "live": is_live_ath} if (ath_value is not None and ath_k is not None) else None
 
     def build_win(n_days):
         if not closes_all or cur is None:
             return None
         w = closes_all[-n_days:]
         c_lo, c_hi = min(w), max(w)
-        yr_low = {"v": yr["low"], "k": yr["lowDaysAgo"], "live": yr["lowDaysAgo"] == 0, "approx": bool(yr.get("lowApprox"))} \
-            if (yr and yr.get("lowDaysAgo") is not None and yr["lowDaysAgo"] <= n_days) else None
-        yr_high = {"v": yr["high"], "k": yr["highDaysAgo"], "live": yr["highDaysAgo"] == 0, "approx": bool(yr.get("highApprox"))} \
-            if (yr and yr.get("highDaysAgo") is not None and yr["highDaysAgo"] <= n_days) else None
+        yr_low = {"v": yr["low"], "k": yr["lowDaysAgo"], "live": yr["lowDaysAgo"] == 0} if (yr and yr.get("lowDaysAgo") is not None and yr["lowDaysAgo"] <= n_days) else None
+        yr_high = {"v": yr["high"], "k": yr["highDaysAgo"], "live": yr["highDaysAgo"] == 0} if (yr and yr.get("highDaysAgo") is not None and yr["highDaysAgo"] <= n_days) else None
+        win_ext = (ta or {}).get("win180Ext") if n_days == 180 else ((ta or {}).get("year") if n_days == YEAR_HIGH_DAYS else None)
+        ext_low = {"v": win_ext["low"], "k": win_ext["lowDaysAgo"], "live": False} if win_ext else None
+        ext_high = {"v": win_ext["high"], "k": win_ext["highDaysAgo"], "live": False} if win_ext else None
         return {
             "n": len(w),
-            "lo": pick_extreme([eff_low_c, yr_low, atl_c if (atl_k is not None and atl_k <= n_days) else None,
-                                {"v": c_lo, "k": len(w) - w.index(c_lo), "live": False, "approx": False}], True),
-            "hi": pick_extreme([eff_high_c, yr_high, ath_c if (ath_k is not None and ath_k <= n_days) else None,
-                                {"v": c_hi, "k": len(w) - w.index(c_hi), "live": False, "approx": False}], False),
+            "short": len(closes_all) < n_days - 5,  # history shorter than this window: only covers the pair's life since listing
+            "lo": pick_extreme([eff_low_c, ext_low, yr_low, atl_c if (atl_k is not None and atl_k <= n_days) else None,
+                                {"v": c_lo, "k": len(w) - w.index(c_lo), "live": False}], True),
+            "hi": pick_extreme([eff_high_c, ext_high, yr_high, ath_c if (ath_k is not None and ath_k <= n_days) else None,
+                                {"v": c_hi, "k": len(w) - w.index(c_hi), "live": False}], False),
         }
 
-    win180 = build_win(180)
-    win365 = build_win(YEAR_HIGH_DAYS)
+    win180, win365 = build_win(180), build_win(YEAR_HIGH_DAYS)
 
+    # Gate references: shortest window whose extreme was set at an RSI meeting THIS coin's own threshold
     w90 = window90 if window90 is not None else DCA_DIP_WINDOW_DAYS
     os_thr = (ta or {}).get("rsiOversoldThreshold", RSI_OVERSOLD)
     ob_thr = (ta or {}).get("rsiOverboughtThreshold", RSI_OVERBOUGHT)
@@ -910,28 +944,12 @@ def classify_holding(coin_id, md, item, ta, macro_ta, dca_log):
         low_cands.append({"w": w90, "v": eff_low_c["v"], "rsi": eff_low_c["rsi"]})
     if eff_high_c:
         high_cands.append({"w": w90, "v": eff_high_c["v"], "rsi": eff_high_c["rsi"]})
-    if win180 and win180["n"] > w90 + 5:
-        if win180["lo"]:
-            low_cands.append({"w": 180, "v": win180["lo"]["v"], "rsi": win180["lo"]["rsi"]})
-        if win180["hi"]:
-            high_cands.append({"w": 180, "v": win180["hi"]["v"], "rsi": win180["hi"]["rsi"]})
-    if win365:
-        if win365["lo"]:
-            low_cands.append({"w": YEAR_HIGH_DAYS, "v": win365["lo"]["v"], "rsi": win365["lo"]["rsi"]})
-        if win365["hi"]:
-            high_cands.append({"w": YEAR_HIGH_DAYS, "v": win365["hi"]["v"], "rsi": win365["hi"]["rsi"]})
-
-    def pick_ref_window(cands, thr, is_low):
-        valid = [c for c in cands if c["rsi"] is not None]
-        hit = next((c for c in valid if (c["rsi"] <= thr if is_low else c["rsi"] >= thr)), None)
-        if hit:
-            return hit
-        best = None
-        for c in valid:
-            if best is None or (c["rsi"] < best["rsi"] if is_low else c["rsi"] > best["rsi"]):
-                best = c
-        return best or (cands[0] if cands else None)
-
+    for win, n_days, use in ((win180, 180, bool(win180 and win180["n"] > w90 + 5)), (win365, YEAR_HIGH_DAYS, bool(win365 and not win365["short"]))):
+        if use:
+            if win["lo"]:
+                low_cands.append({"w": n_days, "v": win["lo"]["v"], "rsi": win["lo"]["rsi"]})
+            if win["hi"]:
+                high_cands.append({"w": n_days, "v": win["hi"]["v"], "rsi": win["hi"]["rsi"]})
     q_low = pick_ref_window(low_cands, os_thr + REF_LOW_RSI_MARGIN, True)
     q_high = pick_ref_window(high_cands, ob_thr, False)
     gate_window = q_low["w"] if q_low else w90
@@ -939,133 +957,101 @@ def classify_holding(coin_id, md, item, ta, macro_ta, dca_log):
     gate_high_window = q_high["w"] if q_high else w90
     gate_high = q_high["v"] if q_high else effective_high
 
-    dca_streak_day = None
+    # ── Add pipeline (only for coins at WAIT) ──
     add_reason_shown = False
-    dca_gap_pct = None
-    dca_required_gap_pct = None
-    next_dca_price = None
+    dca_gap_pct = dca_required_gap_pct = next_dca_price = None
     if signal == "WAIT":
         rel_bonus, rel_note = 0, ""
         if rel_strength is not None:
             rel_bonus = max(REL_STRENGTH_MIN_BONUS, min(REL_STRENGTH_MAX_BONUS, rel_strength / REL_STRENGTH_SCALE))
-            rel_note = f" {'Outperforming' if rel_strength > 0 else 'Underperforming'} BTC ({rel_strength:+.1f}pp/{REL_STRENGTH_WINDOW_DAYS}d)."
+            rel_note = f" {'Outperforming' if rel_strength > 0 else 'Underperforming'} BTC ({rel_strength:+.2f}pp over {REL_STRENGTH_WINDOW_DAYS}d) — {'capital may already be rotating in.' if rel_strength > 0 else 'weight this accordingly.'}"
 
         if ta and ta.get("rollingLow") is not None and gate_low and gate_low > 0 and cur is not None:
             add_reason_shown = True
             above_low = (cur - gate_low) / gate_low * 100
-            near_low_threshold_pct = ta.get("nearLowThresholdPct", DCA_DIP_NEAR_PCT)
-            near_low = above_low <= near_low_threshold_pct
+            near_low_pct = ta.get("nearLowThresholdPct", DCA_DIP_NEAR_PCT)
+            near_low = above_low <= near_low_pct
             rsi_threshold = ta.get("rsiOversoldThreshold", RSI_OVERSOLD)
+            # live AND last-closed RSI must both be oversold: an intraday spike down alone isn't enough to add
             rsi_live_oversold = live_rsi is not None and live_rsi <= rsi_threshold
             rsi_closed_oversold = ta.get("rsi") is not None and ta["rsi"] <= rsi_threshold
             rsi_oversold = rsi_live_oversold and rsi_closed_oversold
-            gap_avg_daily_move = ta.get("gapAvgDailyMove") if ta.get("gapAvgDailyMove") is not None else ta.get("avgDailyMove")
-            closed_rsi_txt = "—" if ta.get("rsi") is None else f"{ta['rsi']:.2f}"
             if near_low and rsi_oversold:
-                dca_streak_day = reconstruct_streak_days(ta["closes"], cur, rsi_threshold, near_low_threshold_pct, gate_window)
                 last_log = (dca_log or {}).get(coin_id)
-                gap_status = get_dca_gap_status(cur, last_log, gap_avg_daily_move, dca_history_of(dca_log, coin_id))
-                dyn_gap_pct = gap_status["requiredGapPct"]
-                gap_pct = gap_status["gapPct"]
-                dca_gap_pct = gap_pct
-                dca_required_gap_pct = dyn_gap_pct
-                next_dca_price = gap_status["nextDcaPrice"]
-                if gap_status["cleared"]:
-                    signal, strength = "ACCUMULATE", round(min(60, strength + 30) + rel_bonus)
-                    gap_note = ""
-                    if last_log is not None and gap_pct is not None:
-                        gap_note = f" Also {gap_pct:.1f}% below last DCA ({fmt_inr(gap_status['lastDcaPrice'])}) — a real step down."
-                    reason = f"{depth:.0f}% below ATH{yr_note}, {above_low:.1f}% above its {gate_window}d low (band ≤{near_low_threshold_pct:.1f}%), RSI {live_rsi:.2f} (oversold vs own ≤{rsi_threshold:.0f}) — day {dca_streak_day}.{gap_note}{rel_note}"
-                elif gap_pct is None:
-                    reason = f"Still meets add conditions (day {dca_streak_day}), but previous DCA price is invalid. Held at WAIT.{rel_note}"
+                gap = get_dca_gap_status(cur, last_log, ta.get("avgDailyMove"), dca_history_of(dca_log, coin_id))
+                dca_gap_pct, dca_required_gap_pct, next_dca_price = gap["gapPct"], gap["requiredGapPct"], gap["nextDcaPrice"]
+                if gap["cleared"]:
+                    signal, strength = "ACCUMULATE", math.floor(strength + 30 + rel_bonus + 0.5)
+                    gap_note = "" if (last_log is None or gap["gapPct"] is None) else f" Also {gap['gapPct']:.2f}% below last DCA ({fmt_inr(gap['lastDcaPrice'])}) — a real step down."
+                    reason = f"{depth:.2f}% below ATH{yr_note}, {above_low:.2f}% above its {gate_window}d low (within this coin's own ≤{near_low_pct:.2f}% band), RSI {live_rsi:.2f} (oversold vs this coin's own ≤{rsi_threshold:.2f} bottom zone) — conditions met.{gap_note}{rel_note}"
                 else:
-                    last_price = gap_status["lastDcaPrice"]
-                    next_price = gap_status["nextDcaPrice"]
-                    position_note = (
-                        f"only {gap_pct:.1f}% below last DCA ({fmt_inr(last_price)})"
-                        if gap_pct >= 0
-                        else f"{abs(gap_pct):.1f}% above last DCA ({fmt_inr(last_price)}), not below it"
-                    )
-                    step_note = f" (DCA #{gap_status['stepCount'] + 1})" if gap_status["stepCount"] > 1 else ""
-                    reason = f"Still meets add conditions (day {dca_streak_day}), but {position_note}. Needs ≥{dyn_gap_pct:.1f}% below that{step_note} — next DCA near {fmt_inr(next_price)}. Held at WAIT.{rel_note}"
+                    g = gap["gapPct"]
+                    last_txt = fmt_inr(gap["lastDcaPrice"])
+                    if g is None:
+                        pos = "its previous DCA price is invalid"
+                    else:
+                        pos = f"only {g:.2f}% below last DCA ({last_txt})" if g >= 0 else f"{abs(g):.2f}% above last DCA ({last_txt}), not below it"
+                    step = f" (DCA #{gap['stepCount'] + 1})" if gap["stepCount"] > 1 else ""
+                    reason = f"Still meets add conditions, but {pos}. Needs ≥{gap['requiredGapPct']:.2f}% below that{step} — next DCA near {fmt_inr(gap['nextDcaPrice'])}. Held at WAIT.{rel_note}"
+            elif near_low and rsi_live_oversold and not rsi_closed_oversold:
+                reason = f"{depth:.2f}% below ATH{yr_note}, near its {gate_window}d low, live RSI {live_rsi:.2f} is oversold (≤{rsi_threshold:.2f}), but the last daily close (RSI {f2(ta.get('rsi'))}) hasn't confirmed it yet — waiting for a daily close."
+            elif near_low and not rsi_oversold:
+                reason = f"{depth:.2f}% below ATH{yr_note}, near its {gate_window}d low, but RSI ({f2(live_rsi)}) hasn't reached this coin's own oversold zone (≤{rsi_threshold:.2f}) yet."
             else:
-                if near_low and rsi_live_oversold and not rsi_closed_oversold:
-                    reason = f"{depth:.0f}% below ATH{yr_note}, near its {gate_window}d low, live RSI {live_rsi:.2f} is oversold (≤{rsi_threshold:.0f}), but the last daily close (RSI {closed_rsi_txt}) hasn't confirmed it yet — waiting for a daily close."
-                elif near_low and not rsi_oversold:
-                    reason = f"{depth:.0f}% below ATH{yr_note}, near its {gate_window}d low, but RSI ({'—' if live_rsi is None else f'{live_rsi:.2f}'}) hasn't reached its own oversold zone (≤{rsi_threshold:.0f}) yet."
-                else:
-                    reason = f"{depth:.0f}% below ATH{yr_note}, but {abs(above_low):.1f}% {'above' if above_low >= 0 else 'below'} its {gate_window}d low — outside its own ≤{near_low_threshold_pct:.1f}% near-low band."
+                reason = f"{depth:.2f}% below ATH{yr_note}, but {abs(above_low):.2f}% {'above' if above_low >= 0 else 'below'} its {gate_window}d low — outside this coin's own ≤{near_low_pct:.2f}% near-low band."
         else:
-            reason = "Not enough price history loaded yet."
+            reason = "Not enough price history loaded yet to judge proximity to its recent-range low."
 
+    # ── Swing trim: which question applies (add or trim) is decided first from the plain 90d range ──
     d_to_low = (cur - effective_low) / cur if (effective_low is not None and cur) else None
     d_to_high = (effective_high - cur) / cur if (effective_high is not None and cur) else None
     lean = "swing" if (d_to_low is not None and d_to_high is not None and d_to_high < d_to_low) else "add"
-
-    swing_high = gate_high if gate_high is not None else effective_high
-    swing_window = gate_high_window
+    swing_high, swing_window = (gate_high if gate_high is not None else effective_high), gate_high_window
     ema_stretch_pct = (cur - live_ema_long) / live_ema_long * 100 if (live_ema_long is not None and live_ema_long > 0 and cur is not None) else None
-    surge_30d_pct = md.get("change_30d")
-    if surge_30d_pct is None:
-        surge_30d_pct = calc_return_pct(live_closes, 30)
-
-    if swing_high and swing_high > 0 and cur is not None and signal not in ("EXIT", "AT RISK", "ACCUMULATE", "TRIM"):
+    surge_30d_pct = calc_return_pct(live_closes, 30)
+    if swing_high is not None and cur is not None and signal not in ("EXIT", "AT RISK", "ACCUMULATE", "TRIM"):
         below_high_pct = (swing_high - cur) / swing_high * 100
-        near_high_threshold_pct = (ta or {}).get("nearLowThresholdPct", DCA_DIP_NEAR_PCT)
-        near_high = below_high_pct <= near_high_threshold_pct
-        rsi_overbought_threshold = (ta or {}).get("rsiOverboughtThreshold", RSI_OVERBOUGHT)
-        rsi_live_overbought = live_rsi is not None and live_rsi >= rsi_overbought_threshold
+        near_high_pct = (ta or {}).get("nearLowThresholdPct", DCA_DIP_NEAR_PCT)
+        near_high = below_high_pct <= near_high_pct
+        ob = (ta or {}).get("rsiOverboughtThreshold", RSI_OVERBOUGHT)
         closed_rsi = (ta or {}).get("rsi")
-        rsi_closed_overbought = closed_rsi is not None and closed_rsi >= rsi_overbought_threshold
-        rsi_overbought = rsi_live_overbought and rsi_closed_overbought
+        rsi_live_ob = live_rsi is not None and live_rsi >= ob
+        rsi_closed_ob = closed_rsi is not None and closed_rsi >= ob
         ema_stretched = ema_stretch_pct is not None and ema_stretch_pct >= SWING_TRIM_EMA_STRETCH_PCT
         surge_stretched = surge_30d_pct is not None and surge_30d_pct >= SWING_TRIM_SURGE_30D_PCT
-        parabolic_stretched = ema_stretched or surge_stretched
-        rsi_txt = "—" if live_rsi is None else f"{live_rsi:.2f}"
-
-        if near_high and rsi_overbought and parabolic_stretched:
+        parabolic = ema_stretched or surge_stretched
+        if near_high and rsi_live_ob and rsi_closed_ob and parabolic:
             signal, strength = "SWING TRIM", max(strength, 65)
-            bits = []
-            if ema_stretched:
-                bits.append(f"+{ema_stretch_pct:.0f}% above EMA-200")
-            if surge_stretched:
-                bits.append(f"+{surge_30d_pct:.0f}% in 30d")
-            stretch_bits = " & ".join(bits)
-            target_note = f" Still well short of target ({fmt_inr(target)}), so this is a partial-profit/rebuy-lower play, not an exit." if target else ""
-            reason = f"{below_high_pct:.1f}% below its {swing_window}d high (≤{near_high_threshold_pct:.1f}% band), live & closed RSI extreme ({live_rsi:.1f} / {closed_rsi:.1f} ≥{rsi_overbought_threshold:.0f}), and stretched ({stretch_bits}) — extreme spike with room to buy back lower.{target_note}"
-        elif near_high and rsi_live_overbought and not rsi_closed_overbought:
-            closed_txt = "—" if closed_rsi is None else f"{closed_rsi:.2f}"
-            reason = f"{below_high_pct:.1f}% below its {swing_window}d high and live RSI {live_rsi:.2f} is overbought (≥{rsi_overbought_threshold:.0f}), but the last daily close (RSI {closed_txt}) hasn't confirmed it yet — waiting for a daily close."
-        elif near_high and rsi_overbought and not parabolic_stretched:
-            reason = f"{below_high_pct:.1f}% below its {swing_window}d high with extreme RSI ({live_rsi:.1f}), but not parabolic enough yet (needs ≥+{SWING_TRIM_EMA_STRETCH_PCT}% above EMA-200 or ≥+{SWING_TRIM_SURGE_30D_PCT}% in 30d) — holding to avoid trimming early."
+            bits = " & ".join(b for b in (f"+{ema_stretch_pct:.2f}% above EMA-200" if ema_stretched else None, f"+{surge_30d_pct:.2f}% in 30d" if surge_stretched else None) if b)
+            target_note = f" Still well short of your {fmt_inr(target)} target, so this is a partial-profit/rebuy-lower play, not an exit." if target else ""
+            reason = f"{below_high_pct:.2f}% below its {swing_window}d high (≤{near_high_pct:.2f}% band), live & closed RSI extreme ({live_rsi:.2f} / {closed_rsi:.2f} ≥{ob:.2f}), and stretched ({bits}) — extreme spike with room to buy back lower.{target_note}"
+        elif near_high and rsi_live_ob and not rsi_closed_ob:
+            reason = f"{below_high_pct:.2f}% below its {swing_window}d high and live RSI {live_rsi:.2f} is overbought (≥{ob:.2f}), but the last daily close (RSI {f2(closed_rsi)}) hasn't confirmed it yet — waiting for a daily close."
+        elif near_high and rsi_live_ob and rsi_closed_ob and not parabolic:
+            reason = f"{below_high_pct:.2f}% below its {swing_window}d high with extreme RSI ({live_rsi:.2f}), but not parabolic enough yet (needs ≥+{SWING_TRIM_EMA_STRETCH_PCT:.2f}% above EMA-200 or ≥+{SWING_TRIM_SURGE_30D_PCT:.2f}% in 30d) — holding to avoid trimming early."
         elif lean == "swing" and ((add_reason_shown and signal == "WAIT") or (ath_pct is not None and ath_pct > ath_tiers["watch"])):
             lead = f"{below_high_pct:.1f}% below its {swing_window}d high"
-            if near_high:
-                reason = f"{lead} (within its own ≤{near_high_threshold_pct:.1f}% band), but RSI ({rsi_txt}) hasn't reached its own overbought zone (≥{rsi_overbought_threshold:.0f}) yet."
-            else:
-                reason = f"{lead} — outside its own ≤{near_high_threshold_pct:.1f}% near-high band, and RSI ({rsi_txt}) is below its own overbought zone (≥{rsi_overbought_threshold:.0f})."
+            reason = (f"{lead} (within this coin's own ≤{near_high_pct:.2f}% band), but RSI ({f2(live_rsi)}) hasn't reached this coin's own overbought zone (≥{ob:.2f}) yet."
+                      if near_high else
+                      f"{lead} — outside this coin's own ≤{near_high_pct:.2f}% near-high band, and RSI ({f2(live_rsi)}) is below this coin's own overbought zone (≥{ob:.2f}).")
         elif near_high:
-            reason = f"{reason} Also {below_high_pct:.1f}% below its {swing_window}d high, but RSI ({rsi_txt}) hasn't reached its own overbought zone (≥{rsi_overbought_threshold:.0f}) yet."
+            reason = f"{reason} Also {below_high_pct:.2f}% below its {swing_window}d high, but RSI ({f2(live_rsi)}) hasn't reached this coin's own overbought zone (≥{ob:.2f}) yet."
 
     if target and cur is not None and cur >= target * (1 - TARGET_PROXIMITY_PCT / 100) and signal not in ("EXIT", "AT RISK"):
         signal = "TRIM"
         strength = 80 if cur >= target else 70
-        reason = f"Price is at or within {TARGET_PROXIMITY_PCT}% of target ({fmt_inr(target)})."
+        reason = f"Price is at or within {TARGET_PROXIMITY_PCT:.2f}% of your target ({fmt_inr(target)}) — worth considering a trim regardless of what the underlying discount signal says."
 
     return {
         "signal": signal, "strength": strength, "reason": reason, "cmp": cur,
-        "athPct": ath_pct, "rsi": live_rsi, "sentiment": sentiment,
-        "relStrengthVsBtc": rel_strength, "dcaStreakDay": dca_streak_day,
-        "dcaGapPct": dca_gap_pct,
-        "dcaRequiredGapPct": dca_required_gap_pct,
-        "nextDcaPrice": next_dca_price,
-        "rsiOversoldThreshold": (ta or {}).get("rsiOversoldThreshold", RSI_OVERSOLD),
-        "rsiOverboughtThreshold": (ta or {}).get("rsiOverboughtThreshold", RSI_OVERBOUGHT),
+        "athPct": ath_pct, "rsi": live_rsi, "sentiment": sentiment, "relStrengthVsBtc": rel_strength,
+        "dcaGapPct": dca_gap_pct, "dcaRequiredGapPct": dca_required_gap_pct, "nextDcaPrice": next_dca_price,
+        "rsiOversoldThreshold": os_thr, "rsiOverboughtThreshold": ob_thr,
         "nearLowThresholdPct": (ta or {}).get("nearLowThresholdPct", DCA_DIP_NEAR_PCT),
         "lean": lean, "gateLow": gate_low, "gateLowWindow": gate_window,
         "gateHigh": gate_high, "gateHighWindow": gate_high_window,
-        "high365": yr["high"] if yr else None, "low365": yr["low"] if yr else None,
-        "drawdown365": yr["pct"] if yr else None, "range365Pos": yr["rangePos"] if yr else None,
+        "high365": yr["high"] if yr else None, "drawdown365": yr["pct"] if yr else None,
+        "volRel": vol_rel, "spreadPct": spread_pct,
     }
 
 # ── TA refresh (once/day, boundary-aligned like taBoundaryPassedSince) ──
@@ -1073,220 +1059,160 @@ def ta_boundary_passed_since(ts_ms):
     if not ts_ms:
         return True
     now = datetime.now(timezone.utc)
-    boundary = now.replace(hour=0, minute=TA_ALIGN_BUFFER_MIN, second=0, microsecond=0)
+    boundary = now.replace(hour=0, minute=0, second=TA_ALIGN_BUFFER_S, microsecond=0)
     if now < boundary:
         boundary -= timedelta(days=1)
     return ts_ms / 1000 < boundary.timestamp()
 
-def refresh_ta(state, ids):
+def fetch_series_with_retry(symbol):
+    series = fetch_ta_history(symbol)
+    if not series and _LAST_HTTP_ERR in ("HTTP_ERROR:429", "HTTP_ERROR:418"):
+        print(f"Rate limited on {symbol} — pausing 15s...")
+        time.sleep(15)
+        series = fetch_ta_history(symbol)
+    return series
+
+def refresh_ta(state, symbols, rate):
+    """Refetch each coin's daily USDT series when a UTC day boundary has passed since its last fetch."""
     ta_cache = state.setdefault("ta_cache", {})
     now_ms = time.time() * 1000
 
-    # Local logic-only recompute from cached closes (preserves OHLC/hourly wick overlays)
-    recomputed = 0
-    for cid in ids:
-        cached = ta_cache.get(cid)
-        closes = cached.get("closes") if cached else None
-        if cached and cached.get("schemaVersion") != TA_SCHEMA_VERSION and closes and len(closes) >= TA_HISTORY_DAYS - 20:
-            rec = compute_ta_from_closes(closes)
-            if rec and audit_ta(rec):
-                if cached.get("year"):
-                    rec["year"] = cached["year"]
-                rec["closesEndTs"] = cached.get("closesEndTs")
-                rec["timestamp"] = cached.get("timestamp")
-                if cached.get("rollingExtremesSource") in ("ohlc", "hourly"):
-                    for k in ("rollingHighSrc", "rollingLowSrc", "rollingHigh", "rollingLow",
-                              "rollingHighDaysAgo", "rollingLowDaysAgo", "rollingExtremesSource"):
-                        rec[k] = cached.get(k)
-                ta_cache[cid] = rec
-                recomputed += 1
-    if recomputed:
-        print(f"Re-applied updated signal logic to {recomputed} cached coin(s).")
-
-    def needs_refresh(cid):
-        c = ta_cache.get(cid)
-        if c is None or ta_boundary_passed_since(c.get("timestamp")) or c.get("schemaVersion") != TA_SCHEMA_VERSION:
+    def needs_refresh(s):
+        c = ta_cache.get(s)
+        if c is None or c.get("schemaVersion") != TA_SCHEMA_VERSION or ta_boundary_passed_since(c.get("timestamp")):
             return True
         end = c.get("closesEndTs")
         return bool(end and now_ms - end > TA_MAX_DATA_AGE_MS and now_ms - (c.get("timestamp") or 0) > 6 * 3600 * 1000)
 
-    stale = [cid for cid in ids if needs_refresh(cid)]
-    updated = stale_feeds = audit_failures = 0
-    for cid in stale:
-        res = fetch_ta_history(cid)
-        if not res and _LAST_HTTP_ERR == "HTTP_ERROR:429":
-            print(f"Rate limited fetching {cid} — pausing 15s...")
-            time.sleep(15)
-            res = fetch_ta_history(cid)
-        if res:
-            closes, last_ts = res
-            if last_ts is None or now_ms - last_ts > TA_MAX_DATA_AGE_MS:
-                stale_feeds += 1
-                end = datetime.fromtimestamp(last_ts / 1000, tz=timezone.utc).strftime("%Y-%m-%d") if last_ts else "unknown"
-                print(f"Daily history for {cid} ends {end} — too old, discarded.")
-                time.sleep(TA_FETCH_DELAY_S)
-                continue
-            ta = compute_ta_from_closes(closes)
-            if ta and audit_ta(ta):
-                ta["closesEndTs"] = last_ts
-                time.sleep(0.5)
-                ext = fetch_range_extremes(cid)
-                if not ext and _LAST_HTTP_ERR == "HTTP_ERROR:429":
-                    print(f"Rate limited during wick check for {cid} — pausing 15s...")
-                    time.sleep(15)
-                    ext = fetch_range_extremes(cid)
-                apply_range_extremes(ta, closes, ext)
-                ta_cache[cid] = ta
-                updated += 1
-            else:
-                audit_failures += 1
-                print(f"TA audit/history check failed for {cid} — keeping previous values.")
-        time.sleep(TA_FETCH_DELAY_S)
-    if stale_feeds:
-        print(f"{stale_feeds} daily histories discarded as stale (ended >3d ago).")
-    if audit_failures:
-        print(f"{audit_failures} TA updates discarded on audit failure.")
+    updated = failed = stale_feeds = audit_failures = 0
+    for s in [s for s in symbols if needs_refresh(s)]:
+        series = fetch_series_with_retry(s)
+        if not series:
+            failed += 1
+            print(f"TA fetch failed for {s}: {_LAST_HTTP_ERR}")
+            continue
+        end = series["closesEndTs"]
+        if end is None or now_ms - end > TA_MAX_DATA_AGE_MS:
+            stale_feeds += 1
+            print(f"Daily history for {s} ends {datetime.fromtimestamp(end / 1000, tz=timezone.utc):%Y-%m-%d} — too old, discarded.")
+            continue
+        if build_ta(series, rate) is None:
+            audit_failures += 1
+            print(f"TA audit/history check failed for {s} — keeping previous values.")
+            continue
+        ta_cache[s] = {**series, "timestamp": now_ms, "schemaVersion": TA_SCHEMA_VERSION}
+        updated += 1
+    if failed or stale_feeds or audit_failures:
+        print(f"TA refresh: {updated} ok, {failed} failed, {stale_feeds} stale feeds, {audit_failures} audit failures.")
     return updated
 
 # ── Message builders ──────────────────────────────────────────────
-def digest_message(results):
-    lines = ["\U0001F4CA <b>Portfolio Signal Digest</b>\n"]
+def digest_message(results, header="Portfolio Signal Digest"):
+    lines = [f"\U0001F4CA <b>{header}</b>\n"]
     for cid, r in results.items():
-        sym = PORTFOLIO[cid]["symbol"]
         emoji = SIGNAL_EMOJI.get(r["signal"], "\u26AA")
-        lines.append(f"{emoji} <b>{sym}</b> {fmt_inr(r['cmp'])} — {r['signal']} ({r['strength']}%)")
+        lines.append(f"{emoji} <b>{PORTFOLIO[cid]['symbol']}</b> {fmt_inr(r['cmp'])} — {r['signal']} ({r['strength']}%)")
     return "\n".join(lines)
 
 def change_message(cid, prev, new):
-    sym = PORTFOLIO[cid]["symbol"]
     emoji = SIGNAL_EMOJI.get(new["signal"], "\u26AA")
     return (
-        f"{emoji} <b>{sym} \u2192 {new['signal']}</b> ({new['strength']}%)\n\n"
+        f"{emoji} <b>{PORTFOLIO[cid]['symbol']} \u2192 {new['signal']}</b> ({new['strength']}%)\n\n"
         f"Was: {prev or 'N/A'}\n"
         f"CMP: {fmt_inr(new['cmp'])}\n\n"
         f"{html.escape(new['reason'])}"
     )
 
 def candidate_discovery_message(candidates):
-    lines = [f"\U0001F50E <b>New Add Candidates (Top {DISCOVERY_MARKET_LIMIT})</b>", "Outside your portfolio · matching ACCUMULATE\n"]
+    lines = [f"\U0001F50E <b>New Add Candidates (Top {DISCOVER_TOP_N} by Binance volume)</b>", "Outside your portfolio · matching ACCUMULATE\n"]
     for coin in candidates:
-        signal = coin["result"]["signal"]
-        emoji = SIGNAL_EMOJI.get(signal, "\u26AA")
-        symbol = html.escape(coin["symbol"] or coin["id"].upper())
-        name = html.escape(coin["name"])
-        rank = coin["rank"] if coin["rank"] is not None else "—"
         result = coin["result"]
-        streak = f" · D{result['dcaStreakDay']}" if result.get("dcaStreakDay") else ""
         lines.append(
-            f"{emoji} <b>{symbol}</b> · {name} · #{rank}\n"
-            f"{fmt_inr(result['cmp'])} — <b>ADD {result['strength']}%{streak}</b>\n"
+            f"{SIGNAL_EMOJI.get(result['signal'], chr(0x26AA))} <b>{html.escape(coin['symbol'])}</b> · #{coin['rank']}\n"
+            f"{fmt_inr(result['cmp'])} — <b>ADD {result['strength']}%</b>\n"
             f"{html.escape(result['reason'])}\n"
         )
     return "\n".join(lines)
 
 # ── Candidate discovery (1:1 with Portfolio_Tracker.html) ─────────
-def run_candidate_discovery(state, macro_ta):
+def is_stablecoin_pair(base, t):
+    if (base or "").upper() in STABLECOIN_BASES:
+        return True
+    px, hi, lo = _num(t.get("lastPrice")), _num(t.get("highPrice")), _num(t.get("lowPrice"))
+    return bool(px and 0.97 <= px <= 1.03 and lo and lo > 0 and hi is not None and hi >= lo and (hi - lo) / px < 0.01)
+
+def run_candidate_discovery(state, macro_ta, rate, info):
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     if state.get("last_discovery") == today:
         return False
-
-    print(f"Starting daily top-{DISCOVERY_MARKET_LIMIT} market candidate discovery...")
-    universe = fetch_market_universe()
-    if universe is None:
-        print("Candidate discovery skipped; market-universe fetch failed.")
+    print(f"Starting daily top-{DISCOVER_TOP_N} Binance candidate discovery...")
+    tickers = fetch_tickers(None)
+    if tickers is None or not info:
+        print("Candidate discovery skipped; Binance ticker/exchange-info fetch failed.")
         return False
 
-    portfolio_ids = set(PORTFOLIO)
-    now_ms = time.time() * 1000
+    # Stage 1: top N USDT pairs by 24h volume, stablecoins out, then the cheap prefilter
+    matched = []
+    for t in tickers:
+        sym = t.get("symbol")
+        if sym not in info or not ((_num(t.get("lastPrice")) or 0) > 0):
+            continue
+        base = info[sym]["base"]
+        if is_stablecoin_pair(base, t):
+            continue
+        md = normalize_ticker(t, rate, info[sym]["tick"])
+        if md["total_volume"] and md["total_volume"] > 0:
+            matched.append({"id": sym, "symbol": base, "md": md})
+    matched.sort(key=lambda c: -c["md"]["total_volume"])
+    for i, c in enumerate(matched):
+        c["rank"] = i + 1
 
-    def pct_above_24h_low(md):
+    def above_24h_low(md):
         lo, cur = md.get("low_24h"), md.get("current_price")
-        if lo is not None and cur is not None and lo > 0 and cur > 0:
-            return (cur - lo) / lo * 100
-        return None
+        return (cur - lo) / lo * 100 if (lo and cur and lo > 0 and cur > 0) else None
 
-    # Stage 1 prefilter: matches HTML discoverCandidates()
-    shortlist = []
-    for cid, md in universe.items():
-        if cid in portfolio_ids:
+    queue = []
+    for c in matched[:DISCOVER_TOP_N]:
+        md = c["md"]
+        if c["id"] in PORTFOLIO:
             continue
-        ath_change = md.get("ath_change_percentage")
-        if ath_change is None or ath_change > DCA_MODERATE_PCT * VOL_SCALE_MIN:
+        a = above_24h_low(md)
+        if a is not None and a > DCA_NEAR_LOW_CEIL_PCT:
             continue
-        above_24h_low = pct_above_24h_low(md)
-        if above_24h_low is not None and above_24h_low > DCA_NEAR_LOW_CEIL_PCT:
+        v = md["total_volume"]
+        if v is None or v < ABSOLUTE_DEAD_VOLUME or v < THIN_VOLUME_USDT * rate:
             continue
-        volume, mcap, rank = md.get("total_volume"), md.get("market_cap"), md.get("market_cap_rank")
-        if volume is None or mcap is None or mcap == 0 or volume == 0:
-            continue
-        if mcap < MICROCAP_FLOOR and volume < ABSOLUTE_DEAD_VOLUME:
-            continue
-        if (volume / mcap) < LIQUIDITY_DEAD_RATIO:
-            continue
-        if mcap < MICROCAP_FLOOR and (rank is None or rank > RANK_CAUTION):
-            continue
-        sort_key = (
-            above_24h_low if above_24h_low is not None else float("inf"),
-            md.get("change_30d") if md.get("change_30d") is not None else 0,
-        )
-        shortlist.append((sort_key, rank, cid, md))
-
-    shortlist.sort(key=lambda row: row[0])
-    shortlist = shortlist[:DISCOVERY_TA_LIMIT]
-    if not shortlist:
-        state["last_discovery"] = today
-        state["discovery_candidates"] = {}
-        print("Candidate discovery complete; no coins cleared Stage 1 prefilter.")
-        return True
-
-    # Stage 2: 1 call/coin on daily closes first, then 2-call wick confirmation ONLY on hits.
-    # Kept in local memory (not state["ta_cache"]) so state.json doesn't bloat with non-held coins.
+        queue.append((a if a is not None else float("inf"), md.get("change_24h") or 0, c))
+    queue.sort(key=lambda row: (row[0], row[1]))
+    queue = [row[2] for row in queue[:DISCOVER_MAX_TA_FETCHES]]
     seen = state.setdefault("discovery_candidates", {})
     newly_qualified = []
 
-    for _, rank, cid, md in shortlist:
-        res = fetch_ta_history(cid)
-        if not res and _LAST_HTTP_ERR == "HTTP_ERROR:429":
-            print(f"Rate limited checking {cid} — pausing 15s...")
-            time.sleep(15)
-            res = fetch_ta_history(cid)
-        if res:
-            closes, last_ts = res
-            if last_ts is not None and (now_ms - last_ts) <= TA_MAX_DATA_AGE_MS:
-                ta = compute_ta_from_closes(closes)
-                if ta and audit_ta(ta) and ta.get("rollingLow") is not None:
-                    ta["closesEndTs"] = last_ts
-                    item = {"symbol": md.get("symbol") or cid.upper(), "target": None}
-                    sig = classify_holding(cid, md, item, ta, macro_ta, None)
+    # Stage 2: daily history per shortlisted coin; ATH only for coins whose last closed RSI is already oversold
+    ath_scratch = {}  # throwaway: non-held coins aren't persisted in state.json
+    now_ms = time.time() * 1000
+    for c in queue:
+        series = fetch_series_with_retry(c["id"])
+        if not series or series["closesEndTs"] is None or now_ms - series["closesEndTs"] > TA_MAX_DATA_AGE_MS:
+            continue
+        ta = build_ta(series, rate)
+        if not ta or ta.get("rollingLow") is None:
+            continue
+        md, item = c["md"], {"symbol": c["symbol"], "target": None}
+        if ta["rsi"] is not None and ta["rsi"] <= ta.get("rsiOversoldThreshold", RSI_OVERSOLD):
+            md.update(resolve_ath_atl(ensure_ath_atl(ath_scratch, c["id"], series), md["current_price"], rate))
+        sig = classify_holding(c["id"], md, item, ta, macro_ta, None, rate)
+        if sig.get("signal") in DISCOVERY_REPORT_SIGNALS:
+            if sig["signal"] != (seen.get(c["id"]) or {}).get("signal"):
+                newly_qualified.append({"id": c["id"], "symbol": c["symbol"], "rank": c["rank"], "result": sig})
+            seen[c["id"]] = {"signal": sig["signal"], "lastSeen": today}
 
-                    if sig.get("signal") == "ACCUMULATE":
-                        time.sleep(1.5)
-                        ext = fetch_range_extremes(cid)
-                        if not ext and _LAST_HTTP_ERR == "HTTP_ERROR:429":
-                            print(f"Rate limited during wick check for {cid} — pausing 15s...")
-                            time.sleep(15)
-                            ext = fetch_range_extremes(cid)
-                        apply_range_extremes(ta, closes, ext)
-                        sig = classify_holding(cid, md, item, ta, macro_ta, None)
-                        time.sleep(2.5)
-
-                    if sig.get("signal") in DISCOVERY_REPORT_SIGNALS:
-                        prev_sig = (seen.get(cid) or {}).get("signal")
-                        if sig["signal"] != prev_sig:
-                            newly_qualified.append({
-                                "id": cid, "symbol": item["symbol"],
-                                "name": md.get("name") or cid, "rank": rank, "result": sig,
-                            })
-                        seen[cid] = {"signal": sig["signal"], "lastSeen": today}
-        time.sleep(DISCOVERY_DELAY_S)
-
-    # Clear coins that exited ACCUMULATE so they alert fresh if they qualify again later
-    for cid in [k for k, v in seen.items() if (v or {}).get("lastSeen") != today]:
-        del seen[cid]
-
+    # Coins that left ACCUMULATE are cleared so they alert fresh if they qualify again later
+    for k in [k for k, v in seen.items() if (v or {}).get("lastSeen") != today]:
+        del seen[k]
     state["last_discovery"] = today
     if newly_qualified:
-        newly_qualified.sort(key=lambda c: (-(c["result"]["strength"]), c["result"].get("athPct") or 0))
+        newly_qualified.sort(key=lambda c: (-c["result"]["strength"], c["result"].get("athPct") or 0))
         send_telegram(candidate_discovery_message(newly_qualified))
         print(f"Candidate discovery reported {len(newly_qualified)} new ACCUMULATE candidate(s).")
     else:
@@ -1296,55 +1222,63 @@ def run_candidate_discovery(state, macro_ta):
 # ── Main ──────────────────────────────────────────────────────────
 def main():
     state = load_state()
-    ids = list(PORTFOLIO.keys())
+    migrated = migrate_state(state)
+    ids = list(PORTFOLIO)
     all_ids = list(dict.fromkeys(ids + [MACRO_ID]))
-    keep_ids = set(all_ids)
+    for cache in ("ta_cache", "ath_cache"):  # prune coins no longer tracked
+        c = state.setdefault(cache, {})
+        for k in [k for k in c if k not in all_ids]:
+            del c[k]
 
-    # Prune any leftover non-portfolio coins from ta_cache
-    ta_cache = state.setdefault("ta_cache", {})
-    for cid in [k for k in list(ta_cache.keys()) if k not in keep_ids]:
-        del ta_cache[cid]
-
-    print("Fetching market data...")
-    market = fetch_market_data(all_ids)
-    if market is None:
-        send_telegram("\u26A0\uFE0F Tracker bot: market data fetch failed.")
+    rate, source = resolve_fx(state)
+    if not rate:
+        send_telegram("\u26A0\uFE0F Tracker bot: USDT/INR rate unavailable (no FX feed reachable, nothing stored).")
         return
+    print(f"USDT/INR {rate:.4f} ({source})")
+
+    print("Fetching Binance market data...")
+    info = fetch_exchange_info()
+    tickers = fetch_tickers(all_ids)
+    if tickers is None:
+        send_telegram("\u26A0\uFE0F Tracker bot: Binance market data fetch failed.")
+        return
+    by_sym = {t["symbol"]: t for t in tickers if t.get("symbol")}
+    market = {s: normalize_ticker(by_sym[s], rate, ((info or {}).get(s) or {}).get("tick")) if s in by_sym else {"notFound": True}
+              for s in all_ids}
 
     print("Refreshing TA (if stale)...")
-    refresh_ta(state, all_ids)
+    refresh_ta(state, all_ids, rate)
+    ta_cache, ath_cache = state["ta_cache"], state["ath_cache"]
+    for s in all_ids:
+        if not market[s].get("notFound"):
+            ensure_ath_atl(ath_cache, s, ta_cache.get(s))
+            market[s].update(resolve_ath_atl(ath_cache.get(s), market[s]["current_price"], rate))
     save_state(state)
 
-    ta_cache = state.get("ta_cache", {})
-    macro_ta = ta_cache.get(MACRO_ID)
+    tas = {s: build_ta(ta_cache.get(s), rate) for s in all_ids}
+    macro_ta = tas.get(MACRO_ID)
     dca_log = state.get("dca_log", {})
-
-    results = {}
-    for cid in ids:
-        results[cid] = classify_holding(cid, market.get(cid), PORTFOLIO[cid], ta_cache.get(cid), macro_ta, dca_log)
-
-    prev_signals = state.get("signals", {})
-    changes = []
-    for cid, r in results.items():
-        prev = prev_signals.get(cid)
-        if prev != r["signal"]:
-            changes.append((cid, prev, r))
-
-    for cid, prev, r in changes:
-        send_telegram(change_message(cid, prev, r))
-        print(f"Signal change: {PORTFOLIO[cid]['symbol']} {prev} -> {r['signal']}")
-
-    state["signals"] = {cid: r["signal"] for cid, r in results.items()}
+    results = {cid: classify_holding(cid, market.get(cid), PORTFOLIO[cid], tas.get(cid), macro_ta, dca_log, rate) for cid in ids}
 
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    hour = datetime.now(timezone.utc).hour
-    if state.get("last_daily") != today and 3 <= hour < 5:
-        send_telegram(digest_message(results))
+    if migrated:
+        # first run on Binance data: signals were just rebuilt from scratch, so report them once instead of as 13 changes
+        send_telegram(digest_message(results, "Tracker bot now runs on Binance data — current signals"))
         state["last_daily"] = today
-        print("Daily digest sent.")
+    else:
+        prev_signals = state.get("signals", {})
+        for cid, r in results.items():
+            if prev_signals.get(cid) != r["signal"]:
+                send_telegram(change_message(cid, prev_signals.get(cid), r))
+                print(f"Signal change: {PORTFOLIO[cid]['symbol']} {prev_signals.get(cid)} -> {r['signal']}")
+        hour = datetime.now(timezone.utc).hour
+        if state.get("last_daily") != today and 3 <= hour < 5:
+            send_telegram(digest_message(results))
+            state["last_daily"] = today
+            print("Daily digest sent.")
+    state["signals"] = {cid: r["signal"] for cid, r in results.items()}
 
-    run_candidate_discovery(state, macro_ta)
-
+    run_candidate_discovery(state, macro_ta, rate, info)
     save_state(state)
     print("Done.")
 
