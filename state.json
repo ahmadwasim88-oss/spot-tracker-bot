@@ -14517,6 +14517,10 @@
   "dca_log": {},
   "discovery_candidates": {},
   "dataSource": "binance",
-  "fx": {},
+  "fx": {
+    "rate": 104.4,
+    "bank": 92.41,
+    "multiplier": 1.1297
+  },
   "last_discovery": "2026-11-26"
 }
