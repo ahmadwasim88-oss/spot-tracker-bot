@@ -19,7 +19,7 @@ BINANCE_HOSTS = [
 ]
 # INR price = Binance USDT price x effective USDT/INR rate. The rate is the exchange USDT/INR published by the
 # Crypto-tools JSON (what the HTML auto-syncs to); the bank USD/INR rate is only the anchor/fallback.
-USDT_INR_JSON_URL = "https://ahmadwasim88-oss.github.io/Crypto-tools/usdt-inr.json"
+USDT_INR_JSON_URL = "https://usdt-inr-proxy.waseem-ah-zaki.workers.dev/usdt-inr.json"
 BANK_FX_SOURCES = [
     ("https://api.frankfurter.dev/v2/rate/usd/inr", lambda j: j.get("rate")),
     ("https://open.er-api.com/v6/latest/USD", lambda j: (j.get("rates") or {}).get("INR")),
