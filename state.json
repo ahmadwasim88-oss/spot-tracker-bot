@@ -14518,9 +14518,9 @@
   "discovery_candidates": {},
   "dataSource": "binance",
   "fx": {
-    "rate": 104.4,
-    "bank": 92.41,
-    "multiplier": 1.1297
+    "rate": 103.63,
+    "bank": 92.47,
+    "multiplier": 1.1207
   },
   "last_discovery": "2026-11-27"
 }
