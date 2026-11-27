@@ -1324,7 +1324,7 @@ def main():
                     undelivered.add(cid)
                 print(f"Signal change: {PORTFOLIO[cid]['symbol']} {prev_signals.get(cid)} -> {r['signal']}")
         hour = datetime.now(timezone.utc).hour
-        if state.get("last_daily") != today and 3 <= hour < 5:
+        if state.get("last_daily") != today and hour >= 3:  # once per UTC day, at the first run after 03:00 (a late cron run no longer skips the day)
             if send_telegram(digest_message(results)):
                 state["last_daily"] = today
                 print("Daily digest sent.")
