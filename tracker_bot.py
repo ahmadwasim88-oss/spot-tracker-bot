@@ -135,25 +135,64 @@ TA_SCHEMA_VERSION = 8  # 8: Binance data layer (USDT series cached, INR derived 
 _LAST_HTTP_ERR = None
 
 # ── Telegram ──────────────────────────────────────────────────────
+TELEGRAM_MAX_CHARS = 4000  # Telegram rejects a message over 4096 characters outright
+
+def _telegram_chunks(msg, limit=TELEGRAM_MAX_CHARS):
+    """Split on line breaks so no chunk exceeds the limit (an oversize alert would otherwise be dropped whole)."""
+    chunks, cur = [], ""
+    for line in msg.split("\n"):
+        while len(line) > limit:  # a single over-long line: hard split
+            if cur:
+                chunks.append(cur)
+                cur = ""
+            chunks.append(line[:limit])
+            line = line[limit:]
+        if cur and len(cur) + 1 + len(line) > limit:
+            chunks.append(cur)
+            cur = line
+        else:
+            cur = f"{cur}\n{line}" if cur else line
+    if cur:
+        chunks.append(cur)
+    return chunks or [""]
+
 def send_telegram(msg):
+    """True when the message was delivered (or Telegram is not configured, so state is never frozen on a dry run);
+    False when delivery failed, so the caller can retry on the next run instead of losing the alert."""
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
         print("Telegram credentials missing; skipping message.")
-        return
+        return True
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    try:
-        r = requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "HTML"}, timeout=10)
-        if not r.ok:
-            print(f"Telegram error: {r.text}")
-    except Exception as e:
-        print(f"Telegram failed: {e}")
+    ok = True
+    for chunk in _telegram_chunks(msg):
+        try:
+            r = requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": chunk, "parse_mode": "HTML"}, timeout=10)
+            if not r.ok:
+                print(f"Telegram error: {r.text}")
+                ok = False
+        except Exception as e:
+            # requests errors embed the request URL, which contains the bot token: never print it
+            print(f"Telegram failed: {type(e).__name__}")
+            ok = False
+    return ok
 
 # ── State ─────────────────────────────────────────────────────────
+class StateCorrupt(Exception):
+    pass
+
 def load_state():
+    """Missing file -> fresh state. A file that exists but can't be parsed (e.g. a typo from hand-editing dca_log)
+    raises StateCorrupt: silently starting fresh would erase the DCA log and overwrite the file on the next save."""
     try:
         with open(STATE_FILE) as f:
-            return json.load(f)
-    except Exception:
+            state = json.load(f)
+    except FileNotFoundError:
         return {"signals": {}, "ta_cache": {}, "ath_cache": {}, "last_daily": "", "dca_log": {}}
+    except Exception as e:
+        raise StateCorrupt(f"{type(e).__name__}: {e}")
+    if not isinstance(state, dict):
+        raise StateCorrupt("top level is not an object")
+    return state
 
 def save_state(s):
     with open(STATE_FILE, "w") as f:
@@ -259,7 +298,7 @@ def count_active_dca_steps(history):
         return 0
     sorted_hist = sorted(
         valid,
-        key=lambda h: (str(h.get("dateStr") or ""), float(h.get("timestamp") or 0)),
+        key=lambda h: (str(h.get("dateStr") or ""), _num(h.get("timestamp")) or 0),
         reverse=True,
     )
     steps = 1
@@ -1213,15 +1252,26 @@ def run_candidate_discovery(state, macro_ta, rate, info):
     state["last_discovery"] = today
     if newly_qualified:
         newly_qualified.sort(key=lambda c: (-c["result"]["strength"], c["result"].get("athPct") or 0))
-        send_telegram(candidate_discovery_message(newly_qualified))
-        print(f"Candidate discovery reported {len(newly_qualified)} new ACCUMULATE candidate(s).")
+        if send_telegram(candidate_discovery_message(newly_qualified)):
+            print(f"Candidate discovery reported {len(newly_qualified)} new ACCUMULATE candidate(s).")
+        else:
+            # not delivered: forget them so tomorrow's/the next scan alerts again instead of treating them as already reported
+            for c in newly_qualified:
+                seen.pop(c["id"], None)
+            state["last_discovery"] = ""
+            print("Candidate alert not delivered; discovery will retry next run.")
     else:
         print("Candidate discovery complete; no new ACCUMULATE candidates.")
     return True
 
 # ── Main ──────────────────────────────────────────────────────────
 def main():
-    state = load_state()
+    try:
+        state = load_state()
+    except StateCorrupt as e:
+        send_telegram(f"\u26A0\uFE0F Tracker bot: state.json is unreadable ({html.escape(str(e))}). Fix or restore it; "
+                      "the bot has NOT overwritten it.")
+        raise SystemExit(f"state.json unreadable: {e}")
     migrated = migrate_state(state)
     ids = list(PORTFOLIO)
     all_ids = list(dict.fromkeys(ids + [MACRO_ID]))
@@ -1261,22 +1311,24 @@ def main():
     results = {cid: classify_holding(cid, market.get(cid), PORTFOLIO[cid], tas.get(cid), macro_ta, dca_log, rate) for cid in ids}
 
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    prev_signals = state.get("signals", {})
+    undelivered = set()  # coins whose change alert failed to send: their old stored signal is kept so it re-sends next run
     if migrated:
         # first run on Binance data: signals were just rebuilt from scratch, so report them once instead of as 13 changes
-        send_telegram(digest_message(results, "Tracker bot now runs on Binance data — current signals"))
-        state["last_daily"] = today
+        if send_telegram(digest_message(results, "Tracker bot now runs on Binance data — current signals")):
+            state["last_daily"] = today
     else:
-        prev_signals = state.get("signals", {})
         for cid, r in results.items():
             if prev_signals.get(cid) != r["signal"]:
-                send_telegram(change_message(cid, prev_signals.get(cid), r))
+                if not send_telegram(change_message(cid, prev_signals.get(cid), r)):
+                    undelivered.add(cid)
                 print(f"Signal change: {PORTFOLIO[cid]['symbol']} {prev_signals.get(cid)} -> {r['signal']}")
         hour = datetime.now(timezone.utc).hour
         if state.get("last_daily") != today and 3 <= hour < 5:
-            send_telegram(digest_message(results))
-            state["last_daily"] = today
-            print("Daily digest sent.")
-    state["signals"] = {cid: r["signal"] for cid, r in results.items()}
+            if send_telegram(digest_message(results)):
+                state["last_daily"] = today
+                print("Daily digest sent.")
+    state["signals"] = {cid: (prev_signals.get(cid) if cid in undelivered else r["signal"]) for cid, r in results.items()}
 
     run_candidate_discovery(state, macro_ta, rate, info)
     save_state(state)
