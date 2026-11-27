@@ -14513,14 +14513,14 @@
       "fetchedAt": 1795677078186.5537
     }
   },
-  "last_daily": "2026-11-26",
+  "last_daily": "2026-11-27",
   "dca_log": {},
   "discovery_candidates": {},
   "dataSource": "binance",
   "fx": {
-    "rate": 103.63,
-    "bank": 92.47,
-    "multiplier": 1.1207
+    "rate": 104.24,
+    "bank": 92.53,
+    "multiplier": 1.1266
   },
   "last_discovery": "2026-11-27"
 }
