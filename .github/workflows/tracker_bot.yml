@@ -31,7 +31,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install requests
+        run: pip install -r requirements.txt
 
       - name: Run bot
         env:
@@ -52,7 +52,13 @@ jobs:
           # Commit first, then rebase onto whatever landed meanwhile. In a rebase, "theirs" is the commit
           # being replayed (ours), so -X theirs keeps this run's state.json on any conflict instead of
           # leaving conflict markers in the file.
+          # First a plain rebase: edits made on GitHub meanwhile (e.g. a dca_log entry) are kept whenever they touch
+          # different lines of state.json. Only on a real same-line conflict fall back to -X theirs.
           for i in 1 2 3; do
+            if git pull --rebase origin main && git push; then
+              exit 0
+            fi
+            git rebase --abort 2>/dev/null || true
             if git pull --rebase -X theirs origin main && git push; then
               exit 0
             fi
