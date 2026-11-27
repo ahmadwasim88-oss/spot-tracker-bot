@@ -1119,7 +1119,7 @@
       ],
       "volMedUsd": 269633.85042,
       "closesEndTs": 1795651200000,
-      "timestamp": 1795760715563.172,
+      "timestamp": 1795760823284.1863,
       "schemaVersion": 8
     },
     "KAVAUSDT": {
@@ -2226,7 +2226,7 @@
       ],
       "volMedUsd": 813366.79489,
       "closesEndTs": 1795651200000,
-      "timestamp": 1795760715563.172,
+      "timestamp": 1795760823284.1863,
       "schemaVersion": 8
     },
     "AXSUSDT": {
@@ -3333,7 +3333,7 @@
       ],
       "volMedUsd": 564446.7383,
       "closesEndTs": 1795651200000,
-      "timestamp": 1795760715563.172,
+      "timestamp": 1795760823284.1863,
       "schemaVersion": 8
     },
     "DOTUSDT": {
@@ -4440,7 +4440,7 @@
       ],
       "volMedUsd": 3025806.6223,
       "closesEndTs": 1795651200000,
-      "timestamp": 1795760715563.172,
+      "timestamp": 1795760823284.1863,
       "schemaVersion": 8
     },
     "TFUELUSDT": {
@@ -5547,7 +5547,7 @@
       ],
       "volMedUsd": 91301.15136,
       "closesEndTs": 1795651200000,
-      "timestamp": 1795760715563.172,
+      "timestamp": 1795760823284.1863,
       "schemaVersion": 8
     },
     "POLUSDT": {
@@ -6654,7 +6654,7 @@
       ],
       "volMedUsd": 2875995.357888,
       "closesEndTs": 1795651200000,
-      "timestamp": 1795760715563.172,
+      "timestamp": 1795760823284.1863,
       "schemaVersion": 8
     },
     "GRTUSDT": {
@@ -7761,7 +7761,7 @@
       ],
       "volMedUsd": 505613.33326,
       "closesEndTs": 1795651200000,
-      "timestamp": 1795760715563.172,
+      "timestamp": 1795760823284.1863,
       "schemaVersion": 8
     },
     "AVAXUSDT": {
@@ -8868,7 +8868,7 @@
       ],
       "volMedUsd": 14703627.73135,
       "closesEndTs": 1795651200000,
-      "timestamp": 1795760715563.172,
+      "timestamp": 1795760823284.1863,
       "schemaVersion": 8
     },
     "1INCHUSDT": {
@@ -9975,7 +9975,7 @@
       ],
       "volMedUsd": 381895.21832,
       "closesEndTs": 1795651200000,
-      "timestamp": 1795760715563.172,
+      "timestamp": 1795760823284.1863,
       "schemaVersion": 8
     },
     "ICPUSDT": {
@@ -11082,7 +11082,7 @@
       ],
       "volMedUsd": 4697960.21194,
       "closesEndTs": 1795651200000,
-      "timestamp": 1795760715563.172,
+      "timestamp": 1795760823284.1863,
       "schemaVersion": 8
     },
     "XNOUSDT": {
@@ -12189,7 +12189,7 @@
       ],
       "volMedUsd": 64875.25427,
       "closesEndTs": 1795651200000,
-      "timestamp": 1795760715563.172,
+      "timestamp": 1795760823284.1863,
       "schemaVersion": 8
     },
     "ETHUSDT": {
@@ -13296,7 +13296,7 @@
       ],
       "volMedUsd": 576243660.533386,
       "closesEndTs": 1795651200000,
-      "timestamp": 1795760715563.172,
+      "timestamp": 1795760823284.1863,
       "schemaVersion": 8
     },
     "BTCUSDT": {
@@ -14403,7 +14403,7 @@
       ],
       "volMedUsd": 1251208115.7763445,
       "closesEndTs": 1795651200000,
-      "timestamp": 1795760715563.172,
+      "timestamp": 1795760823284.1863,
       "schemaVersion": 8
     }
   },
